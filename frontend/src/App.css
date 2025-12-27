@@ -1298,11 +1298,60 @@ button, a, input, .track-card, .queue-item, .history-item {
   }
 }
 
-/* Desktop (1024px - 1399px) */
+/* Desktop (1200px - 1399px) */
 @media (max-width: 1399px) {
   .main-content {
     grid-template-columns: 380px 1fr;
     gap: 20px;
+  }
+}
+
+/* Small Desktop (1024px - 1199px) */
+@media (max-width: 1199px) {
+  .main-content {
+    grid-template-columns: 340px 1fr;
+    gap: 16px;
+    padding: 16px;
+  }
+  
+  .now-playing-card {
+    flex-direction: column;
+    text-align: center;
+    gap: 16px;
+  }
+  
+  .now-playing-art {
+    width: 120px;
+    height: 120px;
+    margin: 0 auto;
+  }
+  
+  .now-playing-info {
+    text-align: center;
+  }
+  
+  .playback-controls {
+    justify-content: center;
+    margin-top: 12px;
+  }
+  
+  .control-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 1.2rem;
+  }
+  
+  .reactions-section h3 {
+    font-size: 1rem;
+  }
+  
+  .reaction-buttons {
+    gap: 6px;
+  }
+  
+  .reaction-btn {
+    font-size: 1.3rem;
+    padding: 8px;
   }
 }
 
@@ -1323,6 +1372,28 @@ button, a, input, .track-card, .queue-item, .history-item {
   
   .now-playing-section {
     grid-column: 1 / -1;
+  }
+  
+  /* Reset the column layout for now-playing on tablet */
+  .now-playing-card {
+    flex-direction: row;
+    text-align: left;
+    gap: 20px;
+  }
+  
+  .now-playing-art {
+    width: 140px;
+    height: 140px;
+    margin: 0;
+  }
+  
+  .now-playing-info {
+    text-align: left;
+  }
+  
+  .playback-controls {
+    justify-content: flex-start;
+    margin-top: 12px;
   }
   
   .right-column {
@@ -1350,6 +1421,36 @@ button, a, input, .track-card, .queue-item, .history-item {
   
   .participants-bar {
     padding: 10px 16px;
+  }
+}
+
+/* Small Tablet (768px - 899px) - Switch to single column earlier */
+@media (max-width: 899px) {
+  .left-column {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .right-column {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .now-playing-card {
+    flex-direction: row;
+    gap: 16px;
+  }
+  
+  .now-playing-art {
+    width: 120px;
+    height: 120px;
+  }
+  
+  .search-section,
+  .queue-section {
+    grid-column: auto;
   }
 }
 
