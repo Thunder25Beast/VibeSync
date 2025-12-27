@@ -123,7 +123,7 @@ function App() {
     pollSession();
     const interval = setInterval(pollSession, 2000);
     return () => clearInterval(interval);
-  }, [sessionCode, showNotification]);
+  }, [sessionCode, showNotification, handleLeaveSession]);
 
   // Poll current track (host only)
   useEffect(() => {
@@ -262,7 +262,7 @@ function App() {
     }
   };
 
-  const handleLeaveSession = async () => {
+  const handleLeaveSession = useCallback(async () => {
     if (sessionCode && !isHost) {
       try {
         await fetch('/api/session?action=leave', {
@@ -294,7 +294,7 @@ function App() {
     setSearchResults([]);
     localStorage.removeItem('vibesync_session');
     localStorage.removeItem('vibesync_isHost');
-  };
+  }, [sessionCode, isHost, userId, token]);
 
   // Search handler
   const handleSearch = async (e) => {
