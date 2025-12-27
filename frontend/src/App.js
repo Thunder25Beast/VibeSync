@@ -476,7 +476,7 @@ function App() {
         <div className="landing">
           <div className="hero">
             <div className="logo-container">
-              <span className="logo-icon">🎧</span>
+              <span className="logo-icon">VS</span>
               <h1>VibeSync</h1>
             </div>
             <p className="tagline">One Premium. Infinite Vibes.</p>
@@ -495,15 +495,15 @@ function App() {
             
             <div className="features-preview">
               <div className="feature-item">
-                <span className="feature-icon">✨</span>
+                <span className="feature-icon">*</span>
                 <span>Host needs Premium</span>
               </div>
               <div className="feature-item">
-                <span className="feature-icon">🆓</span>
+                <span className="feature-icon">+</span>
                 <span>Guests join free</span>
               </div>
               <div className="feature-item">
-                <span className="feature-icon">🔄</span>
+                <span className="feature-icon">~</span>
                 <span>Real-time sync</span>
               </div>
             </div>
@@ -534,22 +534,22 @@ function App() {
             <h2>Why VibeSync?</h2>
             <div className="benefits">
               <div className="benefit">
-                <span className="benefit-icon">📱</span>
+                <span className="benefit-icon">01</span>
                 <h4>No App Required</h4>
                 <p>Works in any browser</p>
               </div>
               <div className="benefit">
-                <span className="benefit-icon">⚡</span>
+                <span className="benefit-icon">02</span>
                 <h4>Real-Time Updates</h4>
                 <p>Instant sync across devices</p>
               </div>
               <div className="benefit">
-                <span className="benefit-icon">🗳️</span>
+                <span className="benefit-icon">03</span>
                 <h4>Democratic Queue</h4>
                 <p>Vote on favorite tracks</p>
               </div>
               <div className="benefit">
-                <span className="benefit-icon">👑</span>
+                <span className="benefit-icon">04</span>
                 <h4>Host Control</h4>
                 <p>Full playback control</p>
               </div>
@@ -557,7 +557,7 @@ function App() {
           </div>
 
           <footer className="landing-footer">
-            <p>© 2025 VibeSync. Made with 🎵 for music lovers.</p>
+            <p>© 2025 VibeSync. Built for music lovers.</p>
             <p className="disclaimer">Not affiliated with Spotify AB</p>
           </footer>
         </div>
@@ -577,7 +577,7 @@ function App() {
       <div className="App">
         <header className="main-header">
           <div className="header-left">
-            <span className="logo-small">🎧</span>
+            <span className="logo-small">VS</span>
             <h1>VibeSync</h1>
           </div>
           <div className="header-right">
@@ -595,7 +595,7 @@ function App() {
 
         <div className="lobby">
           <div className="lobby-card create-card">
-            <div className="card-icon">🎉</div>
+            <div className="card-icon">+</div>
             <h2>Start a Session</h2>
             <p>Create a new music session and invite your friends to join.</p>
             <button 
@@ -613,7 +613,7 @@ function App() {
           </div>
 
           <div className="lobby-card join-card">
-            <div className="card-icon">🎵</div>
+            <div className="card-icon">#</div>
             <h2>Join a Session</h2>
             <p>Enter a session code to join an existing music party.</p>
             <div className="join-form">
@@ -663,22 +663,22 @@ function App() {
           <button onClick={handleLeaveSession} className="back-btn">
             ← Leave
           </button>
-          <span className="logo-small">🎧</span>
+          <span className="logo-small">VS</span>
           <h1>VibeSync</h1>
         </div>
         <div className="session-info">
           <div className="session-code" onClick={copySessionCode}>
             <span className="code-label">Session Code:</span>
             <span className="code-value">{sessionCode}</span>
-            <span className="copy-icon">📋</span>
+            <span className="copy-icon">Copy</span>
           </div>
           {isHost && (
-            <span className="host-badge">👑 Host</span>
+            <span className="host-badge">Host</span>
           )}
         </div>
         <div className="header-right">
           <div className="guest-count">
-            <span className="guest-icon">👥</span>
+            <span className="guest-icon">Users:</span>
             <span>{(session?.guests?.length || 0) + 1}</span>
           </div>
         </div>
@@ -689,7 +689,7 @@ function App() {
         <div className="left-panel">
           {/* Search Section */}
           <div className="search-section">
-            <h2>🔍 Add Songs</h2>
+            <h2>Add Songs</h2>
             <form onSubmit={handleSearch}>
               <input
                 type="text"
@@ -732,7 +732,7 @@ function App() {
           {/* Queue */}
           <div className="queue-section">
             <div className="queue-header">
-              <h2>📋 Queue</h2>
+              <h2>Queue</h2>
               <span className="queue-count">{session?.queue?.length || 0} songs</span>
             </div>
             
@@ -752,7 +752,7 @@ function App() {
                         onClick={() => handleVote(track.id)}
                         className={`vote-btn ${track.votedBy?.includes(userId) ? 'voted' : ''}`}
                       >
-                        <span className="vote-icon">🔥</span>
+                        <span className="vote-icon">▲</span>
                         <span className="vote-count">{track.votes || 0}</span>
                       </button>
                       {(isHost || track.addedBy === (user?.display_name || guestName)) && (
@@ -770,7 +770,7 @@ function App() {
               </div>
             ) : (
               <div className="empty-queue">
-                <span className="empty-icon">🎵</span>
+                <span className="empty-icon">--</span>
                 <p>Queue is empty</p>
                 <p className="empty-hint">Search and add some songs!</p>
               </div>
@@ -782,7 +782,7 @@ function App() {
         <div className="right-panel">
           {/* Share Section */}
           <div className="share-section">
-            <h2>📲 Invite Friends</h2>
+            <h2>Invite Friends</h2>
             <div className="qr-container">
               <img src={getQRCodeUrl()} alt="QR Code" className="qr-code" />
             </div>
@@ -796,7 +796,7 @@ function App() {
           {/* Now Playing (Host Only) */}
           {isHost && (
             <div className="now-playing-section">
-              <h2>🎵 Now Playing</h2>
+              <h2>Now Playing</h2>
               
               {currentTrack?.track ? (
                 <div className="now-playing-card">
@@ -825,22 +825,22 @@ function App() {
                   {/* Playback Controls */}
                   <div className="playback-controls">
                     <button onClick={() => handlePlaybackControl('previous')} className="control-btn">
-                      ⏮️
+                      ⏮
                     </button>
                     <button 
                       onClick={() => handlePlaybackControl(currentTrack.isPlaying ? 'pause' : 'play')} 
                       className="control-btn play-btn"
                     >
-                      {currentTrack.isPlaying ? '⏸️' : '▶️'}
+                      {currentTrack.isPlaying ? '⏸' : '▶'}
                     </button>
                     <button onClick={() => handlePlaybackControl('next')} className="control-btn">
-                      ⏭️
+                      ⏭
                     </button>
                   </div>
 
                   {/* Volume Control */}
                   <div className="volume-control">
-                    <span className="volume-icon">🔊</span>
+                    <span className="volume-icon">Vol</span>
                     <input
                       type="range"
                       min="0"
@@ -854,7 +854,7 @@ function App() {
                 </div>
               ) : (
                 <div className="no-track">
-                  <span className="no-track-icon">🎧</span>
+                  <span className="no-track-icon">--</span>
                   <p>No track playing</p>
                 </div>
               )}
@@ -862,14 +862,14 @@ function App() {
               {/* Play from Queue Button */}
               {session?.queue?.length > 0 && (
                 <button onClick={handlePlayFromQueue} className="play-queue-btn">
-                  ▶️ Play Next from Queue
+                  Play Next from Queue
                 </button>
               )}
 
               {/* Device Selector */}
               <div className="device-section">
                 <button onClick={() => { fetchDevices(); setShowDevices(!showDevices); }} className="device-toggle">
-                  🔈 {selectedDevice?.name || 'Select Device'}
+                  Device: {selectedDevice?.name || 'Select Device'}
                 </button>
                 {showDevices && devices.length > 0 && (
                   <div className="device-list">
@@ -879,7 +879,7 @@ function App() {
                         className={`device-item ${device.is_active ? 'active' : ''}`}
                         onClick={() => setSelectedDevice(device)}
                       >
-                        <span>{device.type === 'Computer' ? '💻' : device.type === 'Smartphone' ? '📱' : '🔈'}</span>
+                        <span>{device.type}</span>
                         <span>{device.name}</span>
                         {device.is_active && <span className="active-badge">Active</span>}
                       </div>
@@ -893,7 +893,7 @@ function App() {
           {/* Guest View - Current Track */}
           {!isHost && currentTrack?.track && (
             <div className="guest-now-playing">
-              <h2>🎵 Now Playing</h2>
+              <h2>Now Playing</h2>
               <div className="now-playing-card">
                 <img src={currentTrack.track.albumArt} alt="Album art" className="album-art" />
                 <h3>{currentTrack.track.name}</h3>
@@ -905,16 +905,16 @@ function App() {
 
           {/* Guests List */}
           <div className="guests-section">
-            <h2>👥 In This Session</h2>
+            <h2>In This Session</h2>
             <div className="guests-list">
               <div className="guest-item host">
-                <span className="guest-avatar">👑</span>
+                <span className="guest-avatar">H</span>
                 <span className="guest-name">{session?.hostName || 'Host'}</span>
                 <span className="role-badge">Host</span>
               </div>
               {session?.guests?.map((guest, index) => (
                 <div key={guest.id || index} className="guest-item">
-                  <span className="guest-avatar">🎧</span>
+                  <span className="guest-avatar">G</span>
                   <span className="guest-name">{guest.name}</span>
                 </div>
               ))}

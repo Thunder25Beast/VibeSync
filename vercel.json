@@ -5,8 +5,11 @@
   "outputDirectory": "frontend/build",
   "installCommand": "cd frontend && npm install",
   "routes": [
-    { "src": "/api/callback", "dest": "/api/auth.js" },
-    { "src": "/api/(.*)", "dest": "/api/$1.js" },
+    { "src": "/api/callback(.*)", "dest": "/api/auth.js" },
+    { "src": "/api/auth(.*)", "dest": "/api/auth.js" },
+    { "src": "/api/playback(.*)", "dest": "/api/playback.js" },
+    { "src": "/api/search(.*)", "dest": "/api/search.js" },
+    { "src": "/api/session(.*)", "dest": "/api/session.js" },
     { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
