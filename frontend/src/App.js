@@ -27,6 +27,7 @@ function App() {
   // Sync state
   const [syncStatus, setSyncStatus] = useState('idle');
   const [reactions, setReactions] = useState([]);
+  // eslint-disable-next-line no-unused-vars
   const [sessionErrorCount, setSessionErrorCount] = useState(0);
 
   // Available reactions
