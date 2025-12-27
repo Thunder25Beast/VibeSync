@@ -111,7 +111,8 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code required' });
         }
 
-        console.log(`Join attempt: code=${code.toUpperCase()}, available sessions: ${Array.from(sessions.keys()).join(', ') || 'none'}`);
+        console.log(`Join attempt: code=${code.toUpperCase()}, guestName=${guestName}, hasToken=${!!guestToken}`);
+        console.log(`Available sessions: ${Array.from(sessions.keys()).join(', ') || 'none'}`);
 
         const session = sessions.get(code.toUpperCase());
         
@@ -212,15 +213,31 @@ module.exports = async (req, res) => {
         }
 
         // Collect all tokens (host + guests with tokens)
-        const tokens = [session.hostToken];
-        session.guests.forEach(g => {
-          if (g.token) tokens.push(g.token);
+        const tokens = [];
+        
+        if (session.hostToken) {
+          tokens.push(session.hostToken);
+          console.log('Host token: present');
+        } else {
+          console.log('Host token: MISSING');
+        }
+        
+        session.guests.forEach((g, i) => {
+          if (g.token) {
+            tokens.push(g.token);
+            console.log(`Guest ${i} (${g.name}): token present`);
+          } else {
+            console.log(`Guest ${i} (${g.name}): NO TOKEN - guest needs to rejoin session`);
+          }
         });
+        
+        console.log(`Total tokens for sync: ${tokens.length} (host + ${session.guests.length} guests)`);
 
         return res.json({
           success: true,
           tokens,
-          participantCount: tokens.length
+          participantCount: tokens.length,
+          guestsWithoutTokens: session.guests.filter(g => !g.token).map(g => g.name)
         });
       }
 

@@ -460,8 +460,15 @@ function App() {
         `${API_BASE}/session?action=get-all-tokens&code=${sessionCode}`
       );
 
+      console.log('Tokens for sync:', tokensResponse.data);
+
       if (!tokensResponse.data.tokens?.length) {
         throw new Error('No tokens available');
+      }
+      
+      // Warn if some guests don't have tokens
+      if (tokensResponse.data.guestsWithoutTokens?.length > 0) {
+        console.warn('Guests without tokens:', tokensResponse.data.guestsWithoutTokens);
       }
 
       // Play on all devices
@@ -471,6 +478,8 @@ function App() {
         position: 0
       });
 
+      console.log('Sync response:', syncResponse.data);
+
       if (syncResponse.data.success) {
         // Update session current track
         await axios.post(`${API_BASE}/session?action=update-track`, {
@@ -479,22 +488,50 @@ function App() {
         });
 
         setSyncStatus('synced');
-        const successCount = syncResponse.data.results?.filter(r => r.success).length || 0;
+        const results = syncResponse.data.results || [];
+        const successCount = results.filter(r => r.success).length;
         const totalCount = tokensResponse.data.participantCount || 1;
         
+        // Check for specific errors
+        const noDeviceErrors = results.filter(r => r.status === 404).length;
+        const premiumErrors = results.filter(r => r.status === 403 || r.error?.includes('PREMIUM_REQUIRED')).length;
+        const tokenErrors = results.filter(r => r.status === 401).length;
+        
         if (successCount === 0) {
-          showNotification(
-            'Sync started but no devices responded. Make sure Spotify is open!', 
-            'error'
-          );
+          if (noDeviceErrors > 0) {
+            showNotification(
+              'No active Spotify devices found. Open Spotify and play something first!', 
+              'error'
+            );
+          } else if (premiumErrors > 0) {
+            showNotification(
+              'Spotify Premium is required for playback control.', 
+              'error'
+            );
+          } else if (tokenErrors > 0) {
+            showNotification(
+              'Some users need to re-login. Tokens have expired.', 
+              'error'
+            );
+          } else {
+            showNotification(
+              'Sync failed. Make sure Spotify is open!', 
+              'error'
+            );
+          }
         } else if (successCount < totalCount) {
+          const issues = [];
+          if (noDeviceErrors > 0) issues.push(`${noDeviceErrors} need to open Spotify`);
+          if (premiumErrors > 0) issues.push(`${premiumErrors} need Premium`);
+          if (tokenErrors > 0) issues.push(`${tokenErrors} need to re-login`);
+          
           showNotification(
-            `Playing on ${successCount}/${totalCount} devices. Some need Spotify Premium or active device.`, 
+            `Playing on ${successCount}/${totalCount} devices. ${issues.join(', ')}.`, 
             'info'
           );
         } else {
           showNotification(
-            `Playing for ${totalCount} people!`, 
+            `Now playing for everyone!`, 
             'success'
           );
         }

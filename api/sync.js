@@ -56,8 +56,23 @@ module.exports = async (req, res) => {
               })
             });
 
-            console.log(`Device ${index}: status ${response.status}`);
-            return { success: response.ok, status: response.status };
+            let errorInfo = null;
+            if (!response.ok) {
+              try {
+                errorInfo = await response.json();
+              } catch (e) {
+                errorInfo = await response.text();
+              }
+              console.error(`Device ${index} failed (${response.status}):`, errorInfo);
+            } else {
+              console.log(`Device ${index}: success`);
+            }
+
+            return { 
+              success: response.ok, 
+              status: response.status,
+              error: errorInfo?.error?.message || errorInfo?.error?.reason || null
+            };
           } catch (error) {
             console.error(`Device ${index} error:`, error.message);
             return { success: false, error: error.message };
