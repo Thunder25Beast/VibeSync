@@ -100,6 +100,41 @@ function App() {
     fetchUser();
   }, [token]);
 
+  // Handle leaving/ending session
+  const handleLeaveSession = useCallback(async () => {
+    if (sessionCode && !isHost) {
+      try {
+        await fetch('/api/session?action=leave', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: sessionCode, guestId: userId })
+        });
+      } catch (error) {
+        console.error('Error leaving session:', error);
+      }
+    }
+
+    if (sessionCode && isHost) {
+      try {
+        await fetch('/api/session?action=end', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: sessionCode })
+        });
+      } catch (error) {
+        console.error('Error ending session:', error);
+      }
+    }
+
+    setSessionCode(null);
+    setSession(null);
+    setIsHost(false);
+    setView(token ? 'lobby' : 'landing');
+    setSearchResults([]);
+    localStorage.removeItem('vibesync_session');
+    localStorage.removeItem('vibesync_isHost');
+  }, [sessionCode, isHost, userId, token]);
+
   // Poll session state
   useEffect(() => {
     if (!sessionCode) return;
@@ -261,40 +296,6 @@ function App() {
       setIsLoading(false);
     }
   };
-
-  const handleLeaveSession = useCallback(async () => {
-    if (sessionCode && !isHost) {
-      try {
-        await fetch('/api/session?action=leave', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: sessionCode, guestId: userId })
-        });
-      } catch (error) {
-        console.error('Error leaving session:', error);
-      }
-    }
-
-    if (sessionCode && isHost) {
-      try {
-        await fetch('/api/session?action=end', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: sessionCode })
-        });
-      } catch (error) {
-        console.error('Error ending session:', error);
-      }
-    }
-
-    setSessionCode(null);
-    setSession(null);
-    setIsHost(false);
-    setView(token ? 'lobby' : 'landing');
-    setSearchResults([]);
-    localStorage.removeItem('vibesync_session');
-    localStorage.removeItem('vibesync_isHost');
-  }, [sessionCode, isHost, userId, token]);
 
   // Search handler
   const handleSearch = async (e) => {
