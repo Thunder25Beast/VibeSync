@@ -1,0 +1,13 @@
+{
+  "name": "vibesync",
+  "version": "1.0.0",
+  "description": "Collaborative Spotify queue app",
+  "scripts": {
+    "dev": "cd frontend && npm start",
+    "build": "cd frontend && npm run build",
+    "vercel-build": "cd frontend && npm install && npm run build"
+  },
+  "keywords": ["spotify", "music", "collaborative"],
+  "author": "Lakshaditya Singh",
+  "license": "MIT"
+}
