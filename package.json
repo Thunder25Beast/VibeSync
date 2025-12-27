@@ -4,8 +4,8 @@
   "description": "Collaborative Spotify queue app",
   "scripts": {
     "dev": "cd frontend && npm start",
-    "build": "cd frontend && npm run build",
-    "vercel-build": "cd frontend && npm install && npm run build"
+    "build": "cd frontend && npm install && npm run build",
+    "install": "cd frontend && npm install"
   },
   "keywords": ["spotify", "music", "collaborative"],
   "author": "Lakshaditya Singh",
