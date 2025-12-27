@@ -477,6 +477,38 @@ module.exports = async (req, res) => {
         });
       }
 
+      // Update participant token (for when tokens refresh)
+      case 'update-token': {
+        const { code, oderId, newToken, isHost } = body;
+        
+        if (!code || !newToken) {
+          return res.status(400).json({ error: 'Session code and new token required' });
+        }
+
+        const session = sessions.get(code.toUpperCase());
+        
+        if (!session) {
+          return res.status(404).json({ error: 'Session not found' });
+        }
+
+        if (isHost) {
+          session.hostToken = newToken;
+          console.log('Updated host token');
+        } else {
+          const guest = session.guests.find(g => g.id === oderId);
+          if (guest) {
+            guest.token = newToken;
+            console.log(`Updated token for guest: ${guest.name}`);
+          } else {
+            console.log(`Guest ${oderId} not found for token update`);
+          }
+        }
+
+        session.lastActivity = Date.now();
+
+        return res.json({ success: true });
+      }
+
       // Request to play (guest requests host to play a song)
       case 'request-play': {
         const { code, track, requestedBy, requestedById } = body;

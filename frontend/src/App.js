@@ -226,6 +226,8 @@ function App() {
   useEffect(() => {
     if (!sessionCode || !token) return;
 
+    let errorCount = 0; // Local error count to avoid stale state
+    
     const pollSession = async () => {
       try {
         const response = await axios.get(`${API_BASE}/session?action=get&code=${sessionCode}`);
@@ -233,22 +235,20 @@ function App() {
         if (response.data.success) {
           setSessionData(response.data.session);
           setReactions(response.data.session.reactions || []);
-          setSessionErrorCount(0); // Reset error count on success
+          errorCount = 0; // Reset on success
+          setSessionErrorCount(0);
         }
       } catch (error) {
         console.log('Poll error:', error.response?.status);
         if (error.response?.status === 404) {
-          // Increment error count - only leave after multiple failures
-          setSessionErrorCount(prev => {
-            const newCount = prev + 1;
-            if (newCount >= 5) {
-              // Only leave after 5 consecutive 404s (10 seconds)
-              showNotification('Session has ended or was not found', 'error');
-              handleLeaveSession();
-              return 0;
-            }
-            return newCount;
-          });
+          errorCount++;
+          console.log(`Session poll 404 count: ${errorCount}/5`);
+          if (errorCount >= 5) {
+            // Only leave after 5 consecutive 404s (10 seconds)
+            showNotification('Session has ended or was not found', 'error');
+            handleLeaveSession();
+            errorCount = 0;
+          }
         }
       }
     };
@@ -257,6 +257,28 @@ function App() {
     const interval = setInterval(pollSession, 2000);
     return () => clearInterval(interval);
   }, [sessionCode, token, handleLeaveSession, showNotification]);
+
+  // Keep token updated in session (so sync works after token refresh)
+  useEffect(() => {
+    if (!sessionCode || !token || !userId) return;
+
+    const updateTokenInSession = async () => {
+      try {
+        await axios.post(`${API_BASE}/session?action=update-token`, {
+          code: sessionCode,
+          oderId: userId,
+          newToken: token,
+          isHost: isHost
+        });
+        console.log('Token updated in session');
+      } catch (error) {
+        console.error('Failed to update token in session:', error);
+      }
+    };
+
+    // Update token whenever it changes
+    updateTokenInSession();
+  }, [sessionCode, token, userId, isHost]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -681,14 +703,17 @@ function App() {
   // Send reaction
   const handleSendReaction = async (emoji) => {
     try {
-      await axios.post(`${API_BASE}/session?action=react`, {
+      const response = await axios.post(`${API_BASE}/session?action=react`, {
         code: sessionCode,
         emoji,
         userName,
         userId
       });
+      console.log('Reaction sent:', response.data);
     } catch (error) {
-      console.error('Reaction error:', error);
+      console.error('Reaction error:', error.response?.status, error.response?.data);
+      // Don't show error for reactions - they're not critical
+      // And importantly, DON'T trigger session leave
     }
   };
 
