@@ -27,6 +27,7 @@ function App() {
   // Sync state
   const [syncStatus, setSyncStatus] = useState('idle');
   const [reactions, setReactions] = useState([]);
+  const [sessionErrorCount, setSessionErrorCount] = useState(0);
 
   // Available reactions
   const REACTIONS = ['🔥', '❤️', '🎉', '👏', '🙌', '💃', '🕺', '✨'];
@@ -93,16 +94,27 @@ function App() {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         
-        if (response.status === 401) {
-          // Token expired
+        if (response.status === 401 || response.status === 403) {
+          // Token expired or invalid
+          console.log('Token invalid, clearing...');
           localStorage.removeItem('spotifyToken');
+          localStorage.removeItem('vibesync_sessionCode');
+          localStorage.removeItem('vibesync_isHost');
           setToken(null);
+          setSessionCode('');
+          return;
+        }
+        
+        if (!response.ok) {
+          console.error('Profile fetch failed:', response.status);
           return;
         }
         
         const data = await response.json();
-        setUserName(data.display_name || 'User');
-        setUserId(data.id);
+        if (data.display_name || data.id) {
+          setUserName(data.display_name || 'User');
+          setUserId(data.id);
+        }
       } catch (error) {
         console.error('Error fetching profile:', error);
       }
@@ -122,12 +134,22 @@ function App() {
         if (response.data.success) {
           setSessionData(response.data.session);
           setReactions(response.data.session.reactions || []);
+          setSessionErrorCount(0); // Reset error count on success
         }
       } catch (error) {
+        console.log('Poll error:', error.response?.status);
         if (error.response?.status === 404) {
-          // Session ended
-          showNotification('Session has ended', 'error');
-          handleLeaveSession();
+          // Increment error count - only leave after multiple failures
+          setSessionErrorCount(prev => {
+            const newCount = prev + 1;
+            if (newCount >= 5) {
+              // Only leave after 5 consecutive 404s (10 seconds)
+              showNotification('Session has ended or was not found', 'error');
+              handleLeaveSession();
+              return 0;
+            }
+            return newCount;
+          });
         }
       }
     };
@@ -205,13 +227,15 @@ function App() {
         setSessionCode(inputCode.toUpperCase());
         setIsHost(false);
         setSessionData(response.data.session);
+        setSessionErrorCount(0); // Reset error count
         localStorage.setItem('vibesync_sessionCode', inputCode.toUpperCase());
         localStorage.setItem('vibesync_isHost', 'false');
         showNotification(`Joined ${response.data.session.hostName}'s session!`, 'success');
       }
     } catch (error) {
       console.error('Error joining session:', error);
-      showNotification(error.response?.data?.error || 'Failed to join session', 'error');
+      const errorMsg = error.response?.data?.hint || error.response?.data?.error || 'Failed to join session';
+      showNotification(errorMsg, 'error');
     }
   };
 

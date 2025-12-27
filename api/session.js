@@ -111,10 +111,16 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code required' });
         }
 
+        console.log(`Join attempt: code=${code.toUpperCase()}, available sessions: ${Array.from(sessions.keys()).join(', ') || 'none'}`);
+
         const session = sessions.get(code.toUpperCase());
         
         if (!session) {
-          return res.status(404).json({ error: 'Session not found' });
+          console.log(`Session ${code.toUpperCase()} not found. Sessions may have been reset due to server restart.`);
+          return res.status(404).json({ 
+            error: 'Session not found',
+            hint: 'The session may have expired or the server may have restarted. Please ask the host to create a new session.'
+          });
         }
 
         // Add or update guest
