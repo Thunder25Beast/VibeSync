@@ -479,6 +479,7 @@ button, a, input, .track-card, .queue-item, .history-item {
   padding: 24px;
   max-width: 1600px;
   margin: 0 auto;
+  overflow-x: hidden;
 }
 
 /* Left Column */
@@ -486,6 +487,7 @@ button, a, input, .track-card, .queue-item, .history-item {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  min-width: 0; /* Prevent overflow */
 }
 
 /* Right Column */
@@ -493,6 +495,7 @@ button, a, input, .track-card, .queue-item, .history-item {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  min-width: 0; /* Prevent overflow */
 }
 
 /* ==================== NOW PLAYING SECTION ==================== */
@@ -1083,11 +1086,14 @@ button, a, input, .track-card, .queue-item, .history-item {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .queue-header h2 {
   color: #1DB954;
   font-size: 1.2rem;
+  white-space: nowrap;
 }
 
 .play-next-btn {
@@ -1099,6 +1105,8 @@ button, a, input, .track-card, .queue-item, .history-item {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .play-next-btn:hover {
