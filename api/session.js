@@ -1,7 +1,28 @@
 // Session Management - Serverless Function with Vercel KV Storage
 // Uses Redis for persistent sessions across serverless function instances
+// Falls back to in-memory storage if KV is not configured
 
-const { kv } = require('@vercel/kv');
+let kv = null;
+let useKV = false;
+
+// Try to load Vercel KV
+try {
+  const kvModule = require('@vercel/kv');
+  kv = kvModule.kv;
+  // Check if KV is configured by checking env vars
+  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+    useKV = true;
+    console.log('Vercel KV configured - using persistent storage');
+  } else {
+    console.log('Vercel KV not configured - using in-memory fallback');
+  }
+} catch (e) {
+  console.log('Vercel KV not available - using in-memory fallback');
+}
+
+// In-memory fallback (works during function warm state)
+const memoryStore = global.vibesyncSessions || new Map();
+global.vibesyncSessions = memoryStore;
 
 // Session key prefix
 const SESSION_PREFIX = 'vibesync:session:';
@@ -17,37 +38,59 @@ function generateSessionCode() {
   return code;
 }
 
-// Get session from KV store
+// Get session from KV store or memory
 async function getSession(code) {
   if (!code) return null;
-  try {
-    const session = await kv.get(`${SESSION_PREFIX}${code.toUpperCase()}`);
-    return session;
-  } catch (error) {
-    console.error('KV get error:', error);
-    return null;
+  const key = code.toUpperCase();
+  
+  if (useKV) {
+    try {
+      const session = await kv.get(`${SESSION_PREFIX}${key}`);
+      return session;
+    } catch (error) {
+      console.error('KV get error, falling back to memory:', error.message);
+      return memoryStore.get(key) || null;
+    }
+  } else {
+    return memoryStore.get(key) || null;
   }
 }
 
-// Save session to KV store
+// Save session to KV store or memory
 async function saveSession(code, session) {
-  try {
-    await kv.set(`${SESSION_PREFIX}${code.toUpperCase()}`, session, { ex: SESSION_TTL });
+  const key = code.toUpperCase();
+  
+  if (useKV) {
+    try {
+      await kv.set(`${SESSION_PREFIX}${key}`, session, { ex: SESSION_TTL });
+      return true;
+    } catch (error) {
+      console.error('KV set error, falling back to memory:', error.message);
+      memoryStore.set(key, session);
+      return true;
+    }
+  } else {
+    memoryStore.set(key, session);
     return true;
-  } catch (error) {
-    console.error('KV set error:', error);
-    return false;
   }
 }
 
-// Delete session from KV store
+// Delete session from KV store or memory
 async function deleteSession(code) {
-  try {
-    await kv.del(`${SESSION_PREFIX}${code.toUpperCase()}`);
+  const key = code.toUpperCase();
+  
+  if (useKV) {
+    try {
+      await kv.del(`${SESSION_PREFIX}${key}`);
+      return true;
+    } catch (error) {
+      console.error('KV delete error, falling back to memory:', error.message);
+      memoryStore.delete(key);
+      return true;
+    }
+  } else {
+    memoryStore.delete(key);
     return true;
-  } catch (error) {
-    console.error('KV delete error:', error);
-    return false;
   }
 }
 
