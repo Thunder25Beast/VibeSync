@@ -43,6 +43,16 @@ module.exports = async (req, res) => {
   const { action, code } = req.query;
   const REDIRECT_URI = getRedirectUri(req);
 
+  // Check if credentials are configured
+  if (!CLIENT_ID || !CLIENT_SECRET) {
+    return res.status(500).json({ 
+      error: 'Server configuration error',
+      message: 'Spotify credentials not configured. Please add SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET to Vercel environment variables.',
+      hasClientId: !!CLIENT_ID,
+      hasClientSecret: !!CLIENT_SECRET
+    });
+  }
+
   // Login - Redirect to Spotify authorization
   if (action === 'login') {
     const scope = [
