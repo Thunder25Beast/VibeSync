@@ -66,10 +66,14 @@ function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const accessToken = params.get('token');
+    const refreshToken = params.get('refresh');
     
     if (accessToken) {
       setToken(accessToken);
       localStorage.setItem('spotifyToken', accessToken);
+      if (refreshToken) {
+        localStorage.setItem('spotifyRefreshToken', refreshToken);
+      }
       window.history.replaceState({}, document.title, '/');
     } else {
       const savedToken = localStorage.getItem('spotifyToken');
@@ -96,9 +100,31 @@ function App() {
         });
         
         if (response.status === 401 || response.status === 403) {
-          // Token expired or invalid
-          console.log('Token invalid, clearing...');
+          // Try to refresh token first
+          const refreshToken = localStorage.getItem('spotifyRefreshToken');
+          if (refreshToken) {
+            try {
+              const refreshResponse = await fetch('/api/auth?action=refresh', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refresh_token: refreshToken })
+              });
+              const refreshData = await refreshResponse.json();
+              if (refreshData.access_token) {
+                setToken(refreshData.access_token);
+                localStorage.setItem('spotifyToken', refreshData.access_token);
+                console.log('Token refreshed successfully');
+                return; // Will retry with new token
+              }
+            } catch (refreshError) {
+              console.error('Token refresh failed:', refreshError);
+            }
+          }
+          
+          // If refresh failed or no refresh token, clear everything
+          console.log('Token invalid and refresh failed, clearing...');
           localStorage.removeItem('spotifyToken');
+          localStorage.removeItem('spotifyRefreshToken');
           localStorage.removeItem('vibesync_sessionCode');
           localStorage.removeItem('vibesync_isHost');
           setToken(null);
@@ -352,10 +378,25 @@ function App() {
         });
 
         setSyncStatus('synced');
-        showNotification(
-          `Playing for ${tokensResponse.data.participantCount} people!`, 
-          'success'
-        );
+        const successCount = syncResponse.data.results?.filter(r => r.success).length || 0;
+        const totalCount = tokensResponse.data.participantCount || 1;
+        
+        if (successCount === 0) {
+          showNotification(
+            'Sync started but no devices responded. Make sure Spotify is open!', 
+            'error'
+          );
+        } else if (successCount < totalCount) {
+          showNotification(
+            `Playing on ${successCount}/${totalCount} devices. Some need Spotify Premium or active device.`, 
+            'info'
+          );
+        } else {
+          showNotification(
+            `Playing for ${totalCount} people!`, 
+            'success'
+          );
+        }
 
         // Remove from queue if it was in queue
         const inQueue = sessionData?.queue?.find(t => t.id === track.id);
@@ -366,7 +407,7 @@ function App() {
     } catch (error) {
       console.error('Sync error:', error);
       setSyncStatus('error');
-      showNotification('Sync failed - make sure everyone has Spotify open!', 'error');
+      showNotification('Sync failed - make sure Spotify is open and you have Premium!', 'error');
     }
     
     setTimeout(() => setSyncStatus('idle'), 3000);

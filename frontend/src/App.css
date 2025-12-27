@@ -6,15 +6,21 @@
   box-sizing: border-box;
 }
 
+html {
+  overflow-x: hidden;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
   color: #fff;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 .App {
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 /* ==================== LANDING PAGE ==================== */
@@ -1198,15 +1204,25 @@ body {
 
 @media (max-width: 768px) {
   .hero {
-    padding: 40px 24px;
+    padding: 30px 20px;
   }
   
   .hero h1 {
-    font-size: 2.5rem;
+    font-size: 2.2rem;
   }
   
   .tagline {
-    font-size: 1.3rem;
+    font-size: 1.2rem;
+  }
+  
+  .description {
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+  
+  .login-btn {
+    padding: 14px 40px;
+    font-size: 1rem;
   }
   
   .session-options {
@@ -1217,6 +1233,7 @@ body {
   .option-card {
     min-width: unset;
     width: 100%;
+    padding: 24px;
   }
   
   .divider {
@@ -1225,35 +1242,239 @@ body {
   
   .app-header {
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
     padding: 12px;
+  }
+  
+  .header-left h1 {
+    font-size: 1.5rem;
   }
   
   .header-center {
     order: -1;
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .header-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+  
+  .participants-bar {
+    padding: 10px 12px;
+    flex-wrap: wrap;
   }
   
   .main-content {
-    padding: 16px;
-    gap: 16px;
+    padding: 12px;
+    gap: 12px;
   }
   
   .search-form {
     flex-direction: column;
   }
   
+  .search-btn {
+    width: 100%;
+  }
+  
+  .now-playing-section,
+  .search-section,
+  .queue-section,
+  .reactions-section,
+  .history-section {
+    padding: 16px;
+    border-radius: 12px;
+  }
+  
   .now-playing-card {
     flex-direction: column;
     text-align: center;
+    gap: 16px;
+  }
+  
+  .now-playing-art {
+    width: 100px;
+    height: 100px;
   }
   
   .playback-controls {
     justify-content: center;
-    margin-top: 16px;
+    margin-top: 12px;
   }
   
   .features-preview {
-    gap: 20px;
+    gap: 16px;
+  }
+  
+  .feature {
+    font-size: 0.85rem;
+  }
+  
+  .track-card {
+    padding: 10px;
+    gap: 10px;
+  }
+  
+  .track-card img {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .track-actions {
+    flex-direction: column;
+    gap: 6px;
+  }
+  
+  .add-btn, .play-now-btn, .request-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+  }
+  
+  .queue-item {
+    padding: 10px;
+    gap: 8px;
+  }
+  
+  .queue-item img {
+    width: 44px;
+    height: 44px;
+  }
+  
+  .queue-position {
+    width: 24px;
+    height: 24px;
+    font-size: 0.75rem;
+  }
+  
+  .queue-info {
+    min-width: 0;
+  }
+  
+  .queue-track, .queue-artist {
+    font-size: 0.85rem;
+  }
+  
+  .queue-added {
+    display: none;
+  }
+  
+  .queue-voting {
+    flex-shrink: 0;
+  }
+  
+  .vote-btn {
+    padding: 4px 10px;
+    font-size: 0.8rem;
+  }
+  
+  .queue-actions {
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .queue-play-btn, .queue-remove-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 0.9rem;
+  }
+  
+  .reaction-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 1.2rem;
+  }
+  
+  .info-banner {
+    padding: 10px 16px;
+    font-size: 0.8rem;
+  }
+  
+  .notification {
+    padding: 12px 20px;
+    font-size: 0.9rem;
+    max-width: 90%;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero {
+    padding: 24px 16px;
+  }
+  
+  .hero h1 {
+    font-size: 1.8rem;
+  }
+  
+  .tagline {
+    font-size: 1rem;
+  }
+  
+  .description {
+    font-size: 0.9rem;
+  }
+  
+  .option-card {
+    padding: 20px;
+  }
+  
+  .action-btn {
+    padding: 12px 24px;
+    font-size: 1rem;
+  }
+  
+  .session-badge {
+    padding: 6px 12px;
+  }
+  
+  .badge-code {
+    font-size: 0.95rem;
+    letter-spacing: 1px;
+  }
+  
+  .role-badge {
+    padding: 4px 12px;
+    font-size: 0.8rem;
+  }
+  
+  .leave-btn {
+    padding: 6px 16px;
+    font-size: 0.85rem;
+  }
+  
+  .now-playing-art {
+    width: 80px;
+    height: 80px;
+  }
+  
+  .now-playing-info h3 {
+    font-size: 1.1rem;
+  }
+  
+  .control-btn {
+    width: 42px;
+    height: 42px;
+    font-size: 1.1rem;
+  }
+  
+  .queue-header {
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  
+  .play-next-btn {
+    width: 100%;
+  }
+  
+  .search-results {
+    max-height: 300px;
+  }
+  
+  .queue-list {
+    max-height: 350px;
   }
 }
 
