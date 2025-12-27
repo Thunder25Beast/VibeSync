@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import './App.css';
 
@@ -10,6 +10,10 @@ function App() {
   const [token, setToken] = useState(null);
   const [userId, setUserId] = useState(null);
   const [userName, setUserName] = useState('');
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  
+  // Ref to track refresh attempts (prevents infinite loops)
+  const refreshAttempts = useRef(0);
   
   // Session state
   const [sessionCode, setSessionCode] = useState('');
@@ -91,7 +95,7 @@ function App() {
 
   // Get user profile
   useEffect(() => {
-    if (!token) return;
+    if (!token || profileLoaded) return;
 
     const fetchProfile = async () => {
       try {
@@ -100,21 +104,57 @@ function App() {
         });
         
         if (response.status === 401 || response.status === 403) {
-          // Try to refresh token first
+          // Check if we've already tried refreshing too many times
+          if (refreshAttempts.current >= 2) {
+            console.log('Max refresh attempts reached, logging out...');
+            refreshAttempts.current = 0;
+            localStorage.removeItem('spotifyToken');
+            localStorage.removeItem('spotifyRefreshToken');
+            localStorage.removeItem('vibesync_sessionCode');
+            localStorage.removeItem('vibesync_isHost');
+            setToken(null);
+            setSessionCode('');
+            setProfileLoaded(false);
+            showNotification('Session expired. Please log in again.', 'error');
+            return;
+          }
+          
+          // Try to refresh token
           const refreshToken = localStorage.getItem('spotifyRefreshToken');
           if (refreshToken) {
             try {
+              refreshAttempts.current += 1;
+              console.log(`Attempting token refresh (attempt ${refreshAttempts.current})...`);
+              
               const refreshResponse = await fetch('/api/auth?action=refresh', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ refresh_token: refreshToken })
               });
               const refreshData = await refreshResponse.json();
-              if (refreshData.access_token) {
-                setToken(refreshData.access_token);
-                localStorage.setItem('spotifyToken', refreshData.access_token);
-                console.log('Token refreshed successfully');
-                return; // Will retry with new token
+              
+              if (refreshData.access_token && !refreshData.error) {
+                console.log('Token refreshed, validating...');
+                // Validate the new token before accepting it
+                const validateResponse = await fetch('https://api.spotify.com/v1/me', {
+                  headers: { 'Authorization': `Bearer ${refreshData.access_token}` }
+                });
+                
+                if (validateResponse.ok) {
+                  const userData = await validateResponse.json();
+                  setToken(refreshData.access_token);
+                  localStorage.setItem('spotifyToken', refreshData.access_token);
+                  setUserName(userData.display_name || 'User');
+                  setUserId(userData.id);
+                  setProfileLoaded(true);
+                  refreshAttempts.current = 0;
+                  console.log('Token refreshed and validated successfully');
+                  return;
+                } else {
+                  console.log('Refreshed token is also invalid');
+                }
+              } else {
+                console.log('Refresh returned error:', refreshData.error);
               }
             } catch (refreshError) {
               console.error('Token refresh failed:', refreshError);
@@ -123,12 +163,15 @@ function App() {
           
           // If refresh failed or no refresh token, clear everything
           console.log('Token invalid and refresh failed, clearing...');
+          refreshAttempts.current = 0;
           localStorage.removeItem('spotifyToken');
           localStorage.removeItem('spotifyRefreshToken');
           localStorage.removeItem('vibesync_sessionCode');
           localStorage.removeItem('vibesync_isHost');
           setToken(null);
           setSessionCode('');
+          setProfileLoaded(false);
+          showNotification('Session expired. Please log in again.', 'error');
           return;
         }
         
@@ -141,6 +184,8 @@ function App() {
         if (data.display_name || data.id) {
           setUserName(data.display_name || 'User');
           setUserId(data.id);
+          setProfileLoaded(true);
+          refreshAttempts.current = 0;
         }
       } catch (error) {
         console.error('Error fetching profile:', error);
@@ -148,7 +193,7 @@ function App() {
     };
 
     fetchProfile();
-  }, [token]);
+  }, [token, profileLoaded, showNotification]);
 
   // Poll session state
   useEffect(() => {
@@ -207,13 +252,21 @@ function App() {
   const handleLogout = () => {
     handleLeaveSession();
     localStorage.removeItem('spotifyToken');
+    localStorage.removeItem('spotifyRefreshToken');
     setToken(null);
     setUserName('');
     setUserId(null);
+    setProfileLoaded(false);
+    refreshAttempts.current = 0;
   };
 
   // Create session (Host)
   const handleCreateSession = async () => {
+    if (!profileLoaded || !userName) {
+      showNotification('Please wait, loading your profile...', 'error');
+      return;
+    }
+    
     try {
       const response = await axios.post(`${API_BASE}/session?action=create`, {
         hostToken: token,
@@ -239,6 +292,11 @@ function App() {
   const handleJoinSession = async () => {
     if (!inputCode.trim()) {
       showNotification('Please enter a session code', 'error');
+      return;
+    }
+    
+    if (!profileLoaded || !userName) {
+      showNotification('Please wait, loading your profile...', 'error');
       return;
     }
 
@@ -270,6 +328,11 @@ function App() {
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
+    
+    if (!token) {
+      showNotification('Please log in to search', 'error');
+      return;
+    }
 
     setIsSearching(true);
     try {
@@ -279,7 +342,18 @@ function App() {
       setSearchResults(response.data.tracks || []);
     } catch (error) {
       console.error('Search error:', error);
-      showNotification('Search failed', 'error');
+      
+      // Check if it's a token error
+      if (error.response?.data?.tokenError || error.response?.status === 401 || error.response?.status === 403) {
+        showNotification('Your session expired. Please log in again.', 'error');
+        // Clear invalid token
+        localStorage.removeItem('spotifyToken');
+        localStorage.removeItem('spotifyRefreshToken');
+        setToken(null);
+        setProfileLoaded(false);
+      } else {
+        showNotification(error.response?.data?.error || 'Search failed', 'error');
+      }
     } finally {
       setIsSearching(false);
     }
@@ -620,7 +694,12 @@ function App() {
         <div className="landing">
           <div className="hero">
             <h1>VibeSync</h1>
-            <p className="welcome">Welcome, {userName}!</p>
+            <p className="welcome">
+              {profileLoaded 
+                ? `Welcome, ${userName}!`
+                : 'Loading your profile...'
+              }
+            </p>
             
             <div className="session-options">
               <div className="option-card">

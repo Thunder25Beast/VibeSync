@@ -30,13 +30,25 @@ module.exports = async (req, res) => {
     });
 
     if (!response.ok) {
-      throw new Error('Spotify API error');
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Spotify search error:', response.status, errorData);
+      
+      if (response.status === 401 || response.status === 403) {
+        return res.status(response.status).json({ 
+          error: 'Token expired or invalid. Please log in again.',
+          tokenError: true
+        });
+      }
+      
+      return res.status(response.status).json({ 
+        error: errorData.error?.message || 'Spotify API error'
+      });
     }
 
     const data = await response.json();
     
     // Format tracks for easier use
-    const tracks = data.tracks.items.map(track => ({
+    const tracks = (data.tracks?.items || []).map(track => ({
       id: track.id,
       name: track.name,
       artists: track.artists.map(a => a.name).join(', '),
@@ -50,6 +62,6 @@ module.exports = async (req, res) => {
     return res.json({ tracks });
   } catch (error) {
     console.error('Search error:', error);
-    return res.status(500).json({ error: 'Search failed' });
+    return res.status(500).json({ error: 'Search failed: ' + error.message });
   }
 };
