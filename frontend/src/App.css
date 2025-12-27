@@ -594,6 +594,23 @@ body {
   font-weight: 600;
 }
 
+/* Info Banner */
+.info-banner {
+  background: linear-gradient(135deg, rgba(29, 185, 84, 0.2), rgba(29, 185, 84, 0.1));
+  border: 1px solid rgba(29, 185, 84, 0.3);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin: 0 24px 16px 24px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--spotify-gray-light);
+}
+
+.info-banner strong {
+  color: var(--spotify-green-light);
+  font-weight: 600;
+}
+
 .session-content {
   display: grid;
   grid-template-columns: 1fr;

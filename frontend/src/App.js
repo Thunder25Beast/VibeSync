@@ -72,9 +72,11 @@ function App() {
     // Check for saved session
     const savedSession = localStorage.getItem('vibesync_session');
     const savedIsHost = localStorage.getItem('vibesync_isHost');
+    const savedGuestName = localStorage.getItem('vibesync_guestName');
     if (savedSession) {
       setSessionCode(savedSession);
       setIsHost(savedIsHost === 'true');
+      if (savedGuestName) setGuestName(savedGuestName);
       setView('session');
     }
   }, []);
@@ -133,6 +135,7 @@ function App() {
     setSearchResults([]);
     localStorage.removeItem('vibesync_session');
     localStorage.removeItem('vibesync_isHost');
+    localStorage.removeItem('vibesync_guestName');
   }, [sessionCode, isHost, userId, token]);
 
   // Poll session state
@@ -279,12 +282,15 @@ function App() {
 
       const data = await response.json();
       if (data.success) {
+        const finalGuestName = guestName || (user?.display_name || `Guest_${userId.slice(-4)}`);
         setSessionCode(joinCode.toUpperCase());
         setSession(data.session);
         setIsHost(false);
+        setGuestName(finalGuestName);
         setView('session');
         localStorage.setItem('vibesync_session', joinCode.toUpperCase());
         localStorage.setItem('vibesync_isHost', 'false');
+        localStorage.setItem('vibesync_guestName', finalGuestName);
         showNotification(`Joined ${data.session.hostName}'s session!`, 'success');
       } else {
         showNotification(data.error || 'Session not found', 'error');
@@ -703,6 +709,13 @@ function App() {
       </header>
 
       <div className="session-content">
+        {/* Info Banner for Guests */}
+        {!isHost && (
+          <div className="info-banner">
+            <strong>Note:</strong> Music plays on {session?.hostName}'s device. You can add songs, vote, and collaborate on the queue!
+          </div>
+        )}
+        
         {/* Left Panel - Queue & Search */}
         <div className="left-panel">
           {/* Search Section */}
