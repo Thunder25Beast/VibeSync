@@ -11,7 +11,18 @@ module.exports = async (req, res) => {
   }
 
   const { action, token } = req.query;
-  const body = req.body;
+  let body = req.body;
+  
+  // Parse body if it's a string
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch (e) {
+      body = {};
+    }
+  }
+  
+  console.log(`Playback API: action=${action}, method=${req.method}, body=`, body);
 
   if (!token) {
     return res.status(401).json({ error: 'Token required' });
@@ -28,11 +39,18 @@ module.exports = async (req, res) => {
     switch (action) {
       case 'play':
         // Play specific tracks or resume
+        console.log('Playing with body:', JSON.stringify(body));
+        
+        // If body has uris, play those tracks
+        const playBody = body?.uris ? { uris: body.uris } : {};
+        
         spotifyResponse = await fetch('https://api.spotify.com/v1/me/player/play', {
           method: 'PUT',
           headers,
-          body: JSON.stringify(body) // { uris: ['spotify:track:...'] }
+          body: Object.keys(playBody).length > 0 ? JSON.stringify(playBody) : undefined
         });
+        
+        console.log('Spotify play response status:', spotifyResponse.status);
         break;
 
       case 'pause':
