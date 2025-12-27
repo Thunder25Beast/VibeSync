@@ -1,14 +1,17 @@
 {
   "version": 2,
+  "framework": null,
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/build",
+  "installCommand": "cd frontend && npm install",
   "functions": {
     "api/*.js": {
       "runtime": "@vercel/node@3"
     }
   },
-  "rewrites": [
-    { "source": "/api/callback", "destination": "/api/auth" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/$1.js" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "destination": "/index.html" }
   ]
 }
