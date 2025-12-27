@@ -7,7 +7,14 @@
     "build": "cd frontend && npm install && npm run build",
     "install": "cd frontend && npm install"
   },
-  "keywords": ["spotify", "music", "collaborative"],
+  "keywords": [
+    "spotify",
+    "music",
+    "collaborative"
+  ],
   "author": "Lakshaditya Singh",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@vercel/kv": "^3.0.0"
+  }
 }

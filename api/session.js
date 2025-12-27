@@ -1,11 +1,11 @@
-// Session Management - Serverless Function with In-Memory Store
-// Supports synchronized playback, reactions, and song history
-// Note: For production, use Redis or a database like MongoDB/Supabase
+// Session Management - Serverless Function with Vercel KV Storage
+// Uses Redis for persistent sessions across serverless function instances
 
-// In-memory session store (works during function warm state)
-// WARNING: Sessions may be lost when function cold-starts!
-const sessions = global.vibesyncSessions || new Map();
-global.vibesyncSessions = sessions;
+const { kv } = require('@vercel/kv');
+
+// Session key prefix
+const SESSION_PREFIX = 'vibesync:session:';
+const SESSION_TTL = 24 * 60 * 60; // 24 hours in seconds
 
 // Generate unique session code
 function generateSessionCode() {
@@ -17,14 +17,37 @@ function generateSessionCode() {
   return code;
 }
 
-// Clean old sessions (older than 24 hours)
-function cleanOldSessions() {
-  const now = Date.now();
-  const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-  for (const [code, session] of sessions.entries()) {
-    if (now - session.createdAt > maxAge) {
-      sessions.delete(code);
-    }
+// Get session from KV store
+async function getSession(code) {
+  if (!code) return null;
+  try {
+    const session = await kv.get(`${SESSION_PREFIX}${code.toUpperCase()}`);
+    return session;
+  } catch (error) {
+    console.error('KV get error:', error);
+    return null;
+  }
+}
+
+// Save session to KV store
+async function saveSession(code, session) {
+  try {
+    await kv.set(`${SESSION_PREFIX}${code.toUpperCase()}`, session, { ex: SESSION_TTL });
+    return true;
+  } catch (error) {
+    console.error('KV set error:', error);
+    return false;
+  }
+}
+
+// Delete session from KV store
+async function deleteSession(code) {
+  try {
+    await kv.del(`${SESSION_PREFIX}${code.toUpperCase()}`);
+    return true;
+  } catch (error) {
+    console.error('KV delete error:', error);
+    return false;
   }
 }
 
@@ -52,10 +75,7 @@ module.exports = async (req, res) => {
   }
 
   // Debug logging
-  console.log(`Session API: action=${action}, sessions count=${sessions.size}`);
-
-  // Clean old sessions periodically
-  cleanOldSessions();
+  console.log(`Session API: action=${action}`);
 
   try {
     switch (action) {
@@ -90,7 +110,13 @@ module.exports = async (req, res) => {
           }
         };
 
-        sessions.set(code, session);
+        const saved = await saveSession(code, session);
+        
+        if (!saved) {
+          return res.status(500).json({ error: 'Failed to create session - storage error' });
+        }
+        
+        console.log(`Session created: ${code}`);
         
         return res.json({
           success: true,
@@ -112,15 +138,14 @@ module.exports = async (req, res) => {
         }
 
         console.log(`Join attempt: code=${code.toUpperCase()}, guestName=${guestName}, hasToken=${!!guestToken}`);
-        console.log(`Available sessions: ${Array.from(sessions.keys()).join(', ') || 'none'}`);
 
-        const session = sessions.get(code.toUpperCase());
+        const session = await getSession(code);
         
         if (!session) {
-          console.log(`Session ${code.toUpperCase()} not found. Sessions may have been reset due to server restart.`);
+          console.log(`Session ${code.toUpperCase()} not found in KV store`);
           return res.status(404).json({ 
             error: 'Session not found',
-            hint: 'The session may have expired or the server may have restarted. Please ask the host to create a new session.'
+            hint: 'The session may have expired. Please ask the host to create a new session.'
           });
         }
 
@@ -146,6 +171,7 @@ module.exports = async (req, res) => {
         }
 
         session.lastActivity = Date.now();
+        await saveSession(code, session);
 
         return res.json({
           success: true,
@@ -170,7 +196,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code required' });
         }
 
-        const session = sessions.get(code.toUpperCase());
+        const session = await getSession(code);
         
         if (!session) {
           return res.status(404).json({ error: 'Session not found' });
@@ -178,7 +204,13 @@ module.exports = async (req, res) => {
 
         // Clear old reactions (older than 5 seconds)
         const now = Date.now();
+        const oldReactionsCount = session.reactions.length;
         session.reactions = session.reactions.filter(r => now - r.timestamp < 5000);
+        
+        // Only save if reactions changed (to reduce writes)
+        if (session.reactions.length !== oldReactionsCount) {
+          await saveSession(code, session);
+        }
 
         return res.json({
           success: true,
@@ -206,7 +238,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code required' });
         }
 
-        const session = sessions.get(code.toUpperCase());
+        const session = await getSession(code);
         
         if (!session) {
           return res.status(404).json({ error: 'Session not found' });
@@ -249,7 +281,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code and track required' });
         }
 
-        const session = sessions.get(code.toUpperCase());
+        const session = await getSession(code);
         
         if (!session) {
           return res.status(404).json({ error: 'Session not found' });
@@ -271,6 +303,7 @@ module.exports = async (req, res) => {
         });
 
         session.lastActivity = Date.now();
+        await saveSession(code, session);
 
         return res.json({
           success: true,
@@ -286,7 +319,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code and track ID required' });
         }
 
-        const session = sessions.get(code.toUpperCase());
+        const session = await getSession(code);
         
         if (!session) {
           return res.status(404).json({ error: 'Session not found' });
@@ -318,6 +351,7 @@ module.exports = async (req, res) => {
         // Sort queue by votes (higher votes first)
         session.queue.sort((a, b) => (b.votes || 0) - (a.votes || 0));
         session.lastActivity = Date.now();
+        await saveSession(code, session);
 
         return res.json({
           success: true,
@@ -333,7 +367,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code and track ID required' });
         }
 
-        const session = sessions.get(code.toUpperCase());
+        const session = await getSession(code);
         
         if (!session) {
           return res.status(404).json({ error: 'Session not found' });
@@ -352,6 +386,7 @@ module.exports = async (req, res) => {
 
         session.queue.splice(trackIndex, 1);
         session.lastActivity = Date.now();
+        await saveSession(code, session);
 
         return res.json({
           success: true,
@@ -367,7 +402,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code required' });
         }
 
-        const session = sessions.get(code.toUpperCase());
+        const session = await getSession(code);
         
         if (!session) {
           return res.status(404).json({ error: 'Session not found' });
@@ -388,6 +423,7 @@ module.exports = async (req, res) => {
         session.currentTrack = track;
         session.isPlaying = !!track;
         session.lastActivity = Date.now();
+        await saveSession(code, session);
 
         return res.json({
           success: true,
@@ -404,7 +440,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code required' });
         }
 
-        const session = sessions.get(code.toUpperCase());
+        const session = await getSession(code);
         
         if (!session) {
           return res.status(404).json({ error: 'Session not found' });
@@ -434,6 +470,8 @@ module.exports = async (req, res) => {
           if (g.token) tokens.push(g.token);
         });
 
+        await saveSession(code, session);
+
         return res.json({
           success: true,
           track: nextTrack,
@@ -451,7 +489,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code and emoji required' });
         }
 
-        const session = sessions.get(code.toUpperCase());
+        const session = await getSession(code);
         
         if (!session) {
           return res.status(404).json({ error: 'Session not found' });
@@ -470,6 +508,7 @@ module.exports = async (req, res) => {
         }
 
         session.lastActivity = Date.now();
+        await saveSession(code, session);
 
         return res.json({
           success: true,
@@ -479,32 +518,37 @@ module.exports = async (req, res) => {
 
       // Update participant token (for when tokens refresh)
       case 'update-token': {
-        const { code, oderId, newToken, isHost } = body;
+        const { code, oderId, userId, newToken, isHost } = body;
+        const participantId = userId || oderId; // Support both for backwards compat
         
         if (!code || !newToken) {
           return res.status(400).json({ error: 'Session code and new token required' });
         }
 
-        const session = sessions.get(code.toUpperCase());
+        const session = await getSession(code);
         
         if (!session) {
-          return res.status(404).json({ error: 'Session not found' });
+          // Not an error - session might have ended, just log it
+          console.log(`Token update for non-existent session ${code} - ignoring`);
+          return res.json({ success: true, message: 'Session not found, token not updated' });
         }
 
         if (isHost) {
           session.hostToken = newToken;
           console.log('Updated host token');
         } else {
-          const guest = session.guests.find(g => g.id === oderId);
+          const guest = session.guests.find(g => g.id === participantId);
           if (guest) {
             guest.token = newToken;
             console.log(`Updated token for guest: ${guest.name}`);
           } else {
-            console.log(`Guest ${oderId} not found for token update`);
+            // Guest might have left, not an error
+            console.log(`Guest ${participantId} not found for token update - may have left`);
           }
         }
 
         session.lastActivity = Date.now();
+        await saveSession(code, session);
 
         return res.json({ success: true });
       }
@@ -517,7 +561,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code and track required' });
         }
 
-        const session = sessions.get(code.toUpperCase());
+        const session = await getSession(code);
         
         if (!session) {
           return res.status(404).json({ error: 'Session not found' });
@@ -540,6 +584,7 @@ module.exports = async (req, res) => {
         });
 
         session.lastActivity = Date.now();
+        await saveSession(code, session);
 
         return res.json({
           success: true,
@@ -556,7 +601,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code required' });
         }
 
-        const session = sessions.get(code.toUpperCase());
+        const session = await getSession(code);
         
         if (!session) {
           return res.status(404).json({ error: 'Session not found' });
@@ -565,6 +610,8 @@ module.exports = async (req, res) => {
         if (session.playRequests) {
           session.playRequests = session.playRequests.filter(r => r.track.id !== trackId);
         }
+
+        await saveSession(code, session);
 
         return res.json({
           success: true,
@@ -580,7 +627,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code and settings required' });
         }
 
-        const session = sessions.get(code.toUpperCase());
+        const session = await getSession(code);
         
         if (!session) {
           return res.status(404).json({ error: 'Session not found' });
@@ -588,6 +635,7 @@ module.exports = async (req, res) => {
 
         session.settings = { ...session.settings, ...settings };
         session.lastActivity = Date.now();
+        await saveSession(code, session);
 
         return res.json({
           success: true,
@@ -603,7 +651,7 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code required' });
         }
 
-        const deleted = sessions.delete(code.toUpperCase());
+        const deleted = await deleteSession(code);
         
         return res.json({
           success: deleted,
@@ -619,14 +667,16 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Session code required' });
         }
 
-        const session = sessions.get(code.toUpperCase());
+        const session = await getSession(code);
         
         if (!session) {
-          return res.status(404).json({ error: 'Session not found' });
+          // Session already ended, that's fine
+          return res.json({ success: true, message: 'Session already ended' });
         }
 
         session.guests = session.guests.filter(g => g.id !== guestId);
         session.lastActivity = Date.now();
+        await saveSession(code, session);
 
         return res.json({
           success: true,
@@ -640,6 +690,6 @@ module.exports = async (req, res) => {
 
   } catch (error) {
     console.error('Session error:', error);
-    return res.status(500).json({ error: 'Session operation failed' });
+    return res.status(500).json({ error: 'Session operation failed', details: error.message });
   }
 };

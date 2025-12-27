@@ -68,6 +68,8 @@ function App() {
     setSessionCode('');
     setSessionData(null);
     setIsHost(false);
+    setSearchResults([]); // Clear search results
+    setSearchQuery(''); // Clear search query
     localStorage.removeItem('vibesync_sessionCode');
     localStorage.removeItem('vibesync_isHost');
   }, [sessionCode, isHost, userId]);
@@ -297,13 +299,16 @@ function App() {
       try {
         await axios.post(`${API_BASE}/session?action=update-token`, {
           code: sessionCode,
-          oderId: userId,
+          userId: userId,
           newToken: token,
           isHost: isHost
         });
         console.log('Token updated in session');
       } catch (error) {
-        console.error('Failed to update token in session:', error);
+        // Don't log errors for 404 - session might have ended
+        if (error.response?.status !== 404) {
+          console.error('Failed to update token in session:', error);
+        }
       }
     };
 
@@ -311,17 +316,24 @@ function App() {
     updateTokenInSession();
   }, [sessionCode, token, userId, isHost]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount - use ref to get latest values without causing re-runs
+  const sessionRef = useRef({ sessionCode: '', isHost: false, userId: null });
   useEffect(() => {
+    sessionRef.current = { sessionCode, isHost, userId };
+  }, [sessionCode, isHost, userId]);
+  
+  useEffect(() => {
+    // Only runs on actual component unmount (empty dependency array)
     return () => {
-      if (sessionCode && !isHost) {
+      const { sessionCode: code, isHost: host, userId: uid } = sessionRef.current;
+      if (code && !host && uid) {
         axios.post(`${API_BASE}/session?action=leave`, { 
-          code: sessionCode, 
-          guestId: userId 
+          code: code, 
+          guestId: uid 
         }).catch(() => {});
       }
     };
-  }, [sessionCode, isHost, userId]);
+  }, []);
 
   // Login handler
   const handleLogin = () => {
@@ -358,6 +370,8 @@ function App() {
         const code = response.data.session.code;
         setSessionCode(code);
         setIsHost(true);
+        setSearchResults([]); // Clear any old search results
+        setSearchQuery(''); // Clear search query
         localStorage.setItem('vibesync_sessionCode', code);
         localStorage.setItem('vibesync_isHost', 'true');
         showNotification(`Session created! Code: ${code}`, 'success');
@@ -393,6 +407,9 @@ function App() {
         setIsHost(false);
         setSessionData(response.data.session);
         setSessionErrorCount(0); // Reset error count
+        setSearchResults([]); // Clear any old search results
+        setSearchQuery(''); // Clear search query
+        setInputCode(''); // Clear input
         localStorage.setItem('vibesync_sessionCode', inputCode.toUpperCase());
         localStorage.setItem('vibesync_isHost', 'false');
         showNotification(`Joined ${response.data.session.hostName}'s session!`, 'success');
