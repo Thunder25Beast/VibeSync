@@ -5,28 +5,16 @@ const querystring = require('querystring');
 const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 
+// Use your main Vercel domain - VERCEL_URL changes per deployment!
+const SITE_URL = process.env.SITE_URL || 'https://vibesync-it.vercel.app';
+
 // Determine redirect URI based on environment
-const getRedirectUri = (req) => {
-  // Check for Vercel production URL first
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}/api/callback`;
-  }
-  // For custom domain
-  if (process.env.NEXT_PUBLIC_SITE_URL) {
-    return `${process.env.NEXT_PUBLIC_SITE_URL}/api/callback`;
-  }
-  // Default to vibesync.vercel.app for production
-  return 'https://vibesync.vercel.app/api/callback';
+const getRedirectUri = () => {
+  return `${SITE_URL}/api/callback`;
 };
 
 const getFrontendUrl = () => {
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
-  if (process.env.NEXT_PUBLIC_SITE_URL) {
-    return process.env.NEXT_PUBLIC_SITE_URL;
-  }
-  return 'https://vibesync.vercel.app';
+  return SITE_URL;
 };
 
 module.exports = async (req, res) => {
@@ -41,7 +29,7 @@ module.exports = async (req, res) => {
   }
 
   const { action, code } = req.query;
-  const REDIRECT_URI = getRedirectUri(req);
+  const REDIRECT_URI = getRedirectUri();
 
   // Check if credentials are configured
   if (!CLIENT_ID || !CLIENT_SECRET) {
