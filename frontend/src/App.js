@@ -1,49 +1,35 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
 import './App.css';
 
-// Generate unique user ID
-const getUserId = () => {
-  let userId = localStorage.getItem('vibesync_user_id');
-  if (!userId) {
-    userId = 'user_' + Math.random().toString(36).substr(2, 9);
-    localStorage.setItem('vibesync_user_id', userId);
-  }
-  return userId;
-};
-
-// Format duration
-const formatDuration = (ms) => {
-  const minutes = Math.floor(ms / 60000);
-  const seconds = Math.floor((ms % 60000) / 1000);
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-};
+// API base URL
+const API_BASE = '/api';
 
 function App() {
   // Auth state
   const [token, setToken] = useState(null);
-  const [user, setUser] = useState(null);
+  const [userId, setUserId] = useState(null);
+  const [userName, setUserName] = useState('');
   
   // Session state
-  const [sessionCode, setSessionCode] = useState(null);
+  const [sessionCode, setSessionCode] = useState('');
+  const [inputCode, setInputCode] = useState('');
   const [isHost, setIsHost] = useState(false);
-  const [session, setSession] = useState(null);
-  const [joinCode, setJoinCode] = useState('');
-  const [guestName, setGuestName] = useState('');
+  const [sessionData, setSessionData] = useState(null);
   
   // UI state
-  const [view, setView] = useState('landing'); // landing, lobby, session
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
-  const [currentTrack, setCurrentTrack] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const [notification, setNotification] = useState(null);
-  const [devices, setDevices] = useState([]);
-  const [selectedDevice, setSelectedDevice] = useState(null);
-  const [showDevices, setShowDevices] = useState(false);
-  const [volume, setVolume] = useState(50);
-  const [progress, setProgress] = useState(0);
+  const [showHistory, setShowHistory] = useState(false);
+  
+  // Sync state
+  const [syncStatus, setSyncStatus] = useState('idle');
+  const [reactions, setReactions] = useState([]);
 
-  const userId = getUserId();
+  // Available reactions
+  const REACTIONS = ['🔥', '❤️', '🎉', '👏', '🙌', '💃', '🕺', '✨'];
 
   // Show notification
   const showNotification = useCallback((message, type = 'info') => {
@@ -51,748 +37,864 @@ function App() {
     setTimeout(() => setNotification(null), 3000);
   }, []);
 
-  // Get token from URL after auth redirect
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const accessToken = params.get('token');
-    const refreshToken = params.get('refresh');
-    
-    if (accessToken) {
-      setToken(accessToken);
-      localStorage.setItem('spotifyToken', accessToken);
-      localStorage.setItem('spotifyRefreshToken', refreshToken);
-      window.history.replaceState({}, document.title, '/');
-    } else {
-      const savedToken = localStorage.getItem('spotifyToken');
-      if (savedToken) {
-        setToken(savedToken);
-      }
-    }
-
-    // Check for saved session
-    const savedSession = localStorage.getItem('vibesync_session');
-    const savedIsHost = localStorage.getItem('vibesync_isHost');
-    const savedGuestName = localStorage.getItem('vibesync_guestName');
-    if (savedSession) {
-      setSessionCode(savedSession);
-      setIsHost(savedIsHost === 'true');
-      if (savedGuestName) setGuestName(savedGuestName);
-      setView('session');
-    }
-  }, []);
-
-  // Fetch user profile
-  useEffect(() => {
-    if (!token) return;
-    
-    const fetchUser = async () => {
-      try {
-        const response = await fetch('https://api.spotify.com/v1/me', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setUser(data);
-        }
-      } catch (error) {
-        console.error('Error fetching user:', error);
-      }
-    };
-    
-    fetchUser();
-  }, [token]);
-
-  // Handle leaving/ending session
+  // Handle leaving session
   const handleLeaveSession = useCallback(async () => {
-    if (sessionCode && !isHost) {
+    if (sessionCode) {
       try {
-        await fetch('/api/session?action=leave', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: sessionCode, guestId: userId })
-        });
+        if (isHost) {
+          await axios.post(`${API_BASE}/session?action=end`, { code: sessionCode });
+        } else {
+          await axios.post(`${API_BASE}/session?action=leave`, { 
+            code: sessionCode, 
+            guestId: userId 
+          });
+        }
       } catch (error) {
         console.error('Error leaving session:', error);
       }
     }
+    setSessionCode('');
+    setSessionData(null);
+    setIsHost(false);
+    localStorage.removeItem('vibesync_sessionCode');
+    localStorage.removeItem('vibesync_isHost');
+  }, [sessionCode, isHost, userId]);
 
-    if (sessionCode && isHost) {
-      try {
-        await fetch('/api/session?action=end', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: sessionCode })
-        });
-      } catch (error) {
-        console.error('Error ending session:', error);
-      }
+  // Get token from URL after auth
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const accessToken = params.get('token');
+    
+    if (accessToken) {
+      setToken(accessToken);
+      localStorage.setItem('spotifyToken', accessToken);
+      window.history.replaceState({}, document.title, '/');
+    } else {
+      const savedToken = localStorage.getItem('spotifyToken');
+      if (savedToken) setToken(savedToken);
     }
 
-    setSessionCode(null);
-    setSession(null);
-    setIsHost(false);
-    setView(token ? 'lobby' : 'landing');
-    setSearchResults([]);
-    localStorage.removeItem('vibesync_session');
-    localStorage.removeItem('vibesync_isHost');
-    localStorage.removeItem('vibesync_guestName');
-  }, [sessionCode, isHost, userId, token]);
+    // Restore session
+    const savedSession = localStorage.getItem('vibesync_sessionCode');
+    const savedIsHost = localStorage.getItem('vibesync_isHost') === 'true';
+    if (savedSession) {
+      setSessionCode(savedSession);
+      setIsHost(savedIsHost);
+    }
+  }, []);
+
+  // Get user profile
+  useEffect(() => {
+    if (!token) return;
+
+    const fetchProfile = async () => {
+      try {
+        const response = await fetch('https://api.spotify.com/v1/me', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (response.status === 401) {
+          // Token expired
+          localStorage.removeItem('spotifyToken');
+          setToken(null);
+          return;
+        }
+        
+        const data = await response.json();
+        setUserName(data.display_name || 'User');
+        setUserId(data.id);
+      } catch (error) {
+        console.error('Error fetching profile:', error);
+      }
+    };
+
+    fetchProfile();
+  }, [token]);
 
   // Poll session state
   useEffect(() => {
-    if (!sessionCode) return;
+    if (!sessionCode || !token) return;
 
     const pollSession = async () => {
       try {
-        const response = await fetch(`/api/session?action=get&code=${sessionCode}`);
-        if (response.ok) {
-          const data = await response.json();
-          setSession(data.session);
-        } else if (response.status === 404) {
-          // Session ended
-          handleLeaveSession();
-          showNotification('Session has ended', 'warning');
+        const response = await axios.get(`${API_BASE}/session?action=get&code=${sessionCode}`);
+        
+        if (response.data.success) {
+          setSessionData(response.data.session);
+          setReactions(response.data.session.reactions || []);
         }
       } catch (error) {
-        console.error('Error polling session:', error);
+        if (error.response?.status === 404) {
+          // Session ended
+          showNotification('Session has ended', 'error');
+          handleLeaveSession();
+        }
       }
     };
 
     pollSession();
     const interval = setInterval(pollSession, 2000);
     return () => clearInterval(interval);
-  }, [sessionCode, showNotification, handleLeaveSession]);
+  }, [sessionCode, token, handleLeaveSession, showNotification]);
 
-  // Poll current track (host only)
+  // Cleanup on unmount
   useEffect(() => {
-    if (!token || !isHost) return;
-
-    const getCurrentTrack = async () => {
-      try {
-        const response = await fetch(`/api/playback?action=current&token=${token}`);
-        const data = await response.json();
-        setCurrentTrack(data);
-        if (data.track) {
-          setProgress(data.track.progress || 0);
-        }
-      } catch (error) {
-        console.error('Error fetching current track:', error);
+    return () => {
+      if (sessionCode && !isHost) {
+        axios.post(`${API_BASE}/session?action=leave`, { 
+          code: sessionCode, 
+          guestId: userId 
+        }).catch(() => {});
       }
     };
+  }, [sessionCode, isHost, userId]);
 
-    getCurrentTrack();
-    const interval = setInterval(getCurrentTrack, 3000);
-    return () => clearInterval(interval);
-  }, [token, isHost]);
-
-  // Progress bar update
-  useEffect(() => {
-    if (!currentTrack?.isPlaying) return;
-    
-    const interval = setInterval(() => {
-      setProgress(prev => Math.min(prev + 1000, currentTrack.track?.duration || 0));
-    }, 1000);
-    
-    return () => clearInterval(interval);
-  }, [currentTrack]);
-
-  // Get devices (host only)
-  const fetchDevices = async () => {
-    if (!token) return;
-    try {
-      const response = await fetch(`/api/playback?action=devices&token=${token}`);
-      const data = await response.json();
-      setDevices(data.devices || []);
-      if (data.devices?.length > 0) {
-        const activeDevice = data.devices.find(d => d.is_active) || data.devices[0];
-        setSelectedDevice(activeDevice);
-      }
-    } catch (error) {
-      console.error('Error fetching devices:', error);
-    }
-  };
-
-  // Auth handlers
+  // Login handler
   const handleLogin = () => {
-    window.location.href = '/api/auth?action=login';
+    window.location.href = `${API_BASE}/auth?action=login`;
   };
 
+  // Logout handler
   const handleLogout = () => {
-    setToken(null);
-    setUser(null);
-    localStorage.removeItem('spotifyToken');
-    localStorage.removeItem('spotifyRefreshToken');
     handleLeaveSession();
+    localStorage.removeItem('spotifyToken');
+    setToken(null);
+    setUserName('');
+    setUserId(null);
   };
 
-  // Session handlers
+  // Create session (Host)
   const handleCreateSession = async () => {
-    if (!token || !user) {
-      showNotification('Please login first', 'error');
-      return;
-    }
-
-    setIsLoading(true);
     try {
-      const response = await fetch('/api/session?action=create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hostToken: token,
-          hostName: user.display_name,
-          hostId: user.id
-        })
+      const response = await axios.post(`${API_BASE}/session?action=create`, {
+        hostToken: token,
+        hostName: userName,
+        hostId: userId
       });
 
-      const data = await response.json();
-      if (data.success) {
-        setSessionCode(data.session.code);
+      if (response.data.success) {
+        const code = response.data.session.code;
+        setSessionCode(code);
         setIsHost(true);
-        setView('session');
-        localStorage.setItem('vibesync_session', data.session.code);
+        localStorage.setItem('vibesync_sessionCode', code);
         localStorage.setItem('vibesync_isHost', 'true');
-        fetchDevices();
-        showNotification('Session created! Share the code with friends', 'success');
+        showNotification(`Session created! Code: ${code}`, 'success');
       }
     } catch (error) {
       console.error('Error creating session:', error);
       showNotification('Failed to create session', 'error');
-    } finally {
-      setIsLoading(false);
     }
   };
 
+  // Join session (Guest)
   const handleJoinSession = async () => {
-    if (!joinCode.trim()) {
+    if (!inputCode.trim()) {
       showNotification('Please enter a session code', 'error');
       return;
     }
 
-    setIsLoading(true);
     try {
-      const response = await fetch('/api/session?action=join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: joinCode.toUpperCase(),
-          guestName: guestName || (user?.display_name || `Guest_${userId.slice(-4)}`),
-          guestId: userId
-        })
+      const response = await axios.post(`${API_BASE}/session?action=join`, {
+        code: inputCode.toUpperCase(),
+        guestName: userName,
+        guestId: userId,
+        guestToken: token // Send token for sync!
       });
 
-      const data = await response.json();
-      if (data.success) {
-        const finalGuestName = guestName || (user?.display_name || `Guest_${userId.slice(-4)}`);
-        setSessionCode(joinCode.toUpperCase());
-        setSession(data.session);
+      if (response.data.success) {
+        setSessionCode(inputCode.toUpperCase());
         setIsHost(false);
-        setGuestName(finalGuestName);
-        setView('session');
-        localStorage.setItem('vibesync_session', joinCode.toUpperCase());
+        setSessionData(response.data.session);
+        localStorage.setItem('vibesync_sessionCode', inputCode.toUpperCase());
         localStorage.setItem('vibesync_isHost', 'false');
-        localStorage.setItem('vibesync_guestName', finalGuestName);
-        showNotification(`Joined ${data.session.hostName}'s session!`, 'success');
-      } else {
-        showNotification(data.error || 'Session not found', 'error');
+        showNotification(`Joined ${response.data.session.hostName}'s session!`, 'success');
       }
     } catch (error) {
       console.error('Error joining session:', error);
-      showNotification('Failed to join session', 'error');
-    } finally {
-      setIsLoading(false);
+      showNotification(error.response?.data?.error || 'Failed to join session', 'error');
     }
   };
 
-  // Search handler
+  // Search for tracks
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
 
-    // Use host's token for search
-    const searchToken = isHost ? token : session?.hostToken;
-    if (!searchToken) {
-      showNotification('Unable to search', 'error');
-      return;
-    }
-
-    setIsLoading(true);
+    setIsSearching(true);
     try {
-      const response = await fetch(`/api/search?query=${encodeURIComponent(searchQuery)}&token=${searchToken}`);
-      const data = await response.json();
-      setSearchResults(data.tracks || []);
+      const response = await axios.get(
+        `${API_BASE}/search?query=${encodeURIComponent(searchQuery)}&token=${token}`
+      );
+      setSearchResults(response.data.tracks || []);
     } catch (error) {
       console.error('Search error:', error);
       showNotification('Search failed', 'error');
     } finally {
-      setIsLoading(false);
+      setIsSearching(false);
     }
   };
 
-  // Queue handlers
+  // Add track to queue
   const handleAddToQueue = async (track) => {
-    if (!sessionCode) return;
-
     try {
-      const response = await fetch('/api/session?action=addTrack', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: sessionCode,
-          track,
-          addedBy: user?.display_name || guestName || `Guest_${userId.slice(-4)}`
-        })
+      const response = await axios.post(`${API_BASE}/session?action=addTrack`, {
+        code: sessionCode,
+        track: {
+          id: track.id,
+          name: track.name,
+          artists: track.artists,
+          album: track.album,
+          albumArt: track.albumArt,
+          duration: track.duration,
+          uri: track.uri
+        },
+        addedBy: userName,
+        addedById: userId
       });
 
-      const data = await response.json();
-      if (data.success) {
-        showNotification(`Added "${track.name}" to queue`, 'success');
-        // Clear from search results to indicate it's added
-        setSearchResults(prev => prev.filter(t => t.id !== track.id));
-      } else {
-        showNotification(data.error || 'Failed to add track', 'error');
+      if (response.data.success) {
+        setSessionData(prev => ({ ...prev, queue: response.data.queue }));
+        showNotification('Added to queue!', 'success');
       }
     } catch (error) {
-      console.error('Error adding track:', error);
-      showNotification('Failed to add track', 'error');
+      console.error('Error adding to queue:', error);
+      showNotification(error.response?.data?.error || 'Failed to add', 'error');
     }
   };
 
+  // Vote for track
   const handleVote = async (trackId) => {
-    if (!sessionCode) return;
-
     try {
-      await fetch('/api/session?action=vote', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: sessionCode,
-          trackId,
-          voterId: userId
-        })
+      const response = await axios.post(`${API_BASE}/session?action=vote`, {
+        code: sessionCode,
+        trackId,
+        voterId: userId
       });
+
+      if (response.data.success) {
+        setSessionData(prev => ({ ...prev, queue: response.data.queue }));
+      }
     } catch (error) {
       console.error('Error voting:', error);
     }
   };
 
+  // Remove track from queue
   const handleRemoveTrack = async (trackId) => {
-    if (!sessionCode) return;
-
     try {
-      await fetch('/api/session?action=removeTrack', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: sessionCode,
-          trackId,
-          requesterId: userId,
-          isHost
-        })
-      });
-      showNotification('Track removed', 'success');
-    } catch (error) {
-      console.error('Error removing track:', error);
-    }
-  };
-
-  // Playback handlers (host only)
-  const handlePlayFromQueue = async () => {
-    if (!isHost || !session?.queue?.length) return;
-
-    try {
-      // Get next track from queue
-      const response = await fetch('/api/session?action=playNext', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: sessionCode })
+      const response = await axios.post(`${API_BASE}/session?action=removeTrack`, {
+        code: sessionCode,
+        trackId,
+        requesterId: userId,
+        isHost
       });
 
-      const data = await response.json();
-      console.log('PlayNext response:', data);
-      
-      if (data.success && data.track) {
-        // Play the track using the Spotify URI
-        const trackUri = data.track.uri;
-        if (!trackUri) {
-          showNotification('Track URI not found', 'error');
-          return;
-        }
-        
-        const playResponse = await fetch(`/api/playback?action=play&token=${token}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ uris: [trackUri] })
-        });
-        
-        const playData = await playResponse.json();
-        console.log('Play response:', playData);
-        
-        if (playResponse.ok) {
-          showNotification(`Now playing: ${data.track.name}`, 'success');
-        } else {
-          showNotification(playData.error?.message || 'Failed to play', 'error');
-        }
-      } else {
-        showNotification(data.error || 'Failed to get next track', 'error');
+      if (response.data.success) {
+        setSessionData(prev => ({ ...prev, queue: response.data.queue }));
+        showNotification('Removed from queue', 'success');
       }
     } catch (error) {
-      console.error('Error playing from queue:', error);
-      showNotification('Failed to play track', 'error');
+      console.error('Error removing track:', error);
+      showNotification(error.response?.data?.error || 'Cannot remove', 'error');
     }
   };
 
-  const handlePlaybackControl = async (action) => {
-    if (!isHost || !token) return;
-
+  // Play synced for everyone (Host only)
+  const handlePlaySynced = async (track) => {
+    setSyncStatus('syncing');
     try {
-      await fetch(`/api/playback?action=${action}&token=${token}`, {
-        method: 'POST'
+      // Get all tokens
+      const tokensResponse = await axios.get(
+        `${API_BASE}/session?action=get-all-tokens&code=${sessionCode}`
+      );
+
+      if (!tokensResponse.data.tokens?.length) {
+        throw new Error('No tokens available');
+      }
+
+      // Play on all devices
+      const syncResponse = await axios.post(`${API_BASE}/sync?action=play-sync`, {
+        tokens: tokensResponse.data.tokens,
+        trackUri: track.uri,
+        position: 0
       });
+
+      if (syncResponse.data.success) {
+        // Update session current track
+        await axios.post(`${API_BASE}/session?action=update-track`, {
+          code: sessionCode,
+          track
+        });
+
+        setSyncStatus('synced');
+        showNotification(
+          `Playing for ${tokensResponse.data.participantCount} people!`, 
+          'success'
+        );
+
+        // Remove from queue if it was in queue
+        const inQueue = sessionData?.queue?.find(t => t.id === track.id);
+        if (inQueue) {
+          await handleRemoveTrack(track.id);
+        }
+      }
     } catch (error) {
-      console.error('Playback control error:', error);
+      console.error('Sync error:', error);
+      setSyncStatus('error');
+      showNotification('Sync failed - make sure everyone has Spotify open!', 'error');
+    }
+    
+    setTimeout(() => setSyncStatus('idle'), 3000);
+  };
+
+  // Play next from queue (Host only)
+  const handlePlayNext = async () => {
+    if (!sessionData?.queue?.length) {
+      showNotification('Queue is empty', 'error');
+      return;
+    }
+
+    setSyncStatus('syncing');
+    try {
+      const response = await axios.post(`${API_BASE}/session?action=playNext`, {
+        code: sessionCode
+      });
+
+      if (response.data.success && response.data.track) {
+        // Play on all devices
+        const syncResponse = await axios.post(`${API_BASE}/sync?action=play-sync`, {
+          tokens: response.data.tokens,
+          trackUri: response.data.track.uri,
+          position: 0
+        });
+
+        if (syncResponse.data.success) {
+          setSessionData(prev => ({
+            ...prev,
+            queue: response.data.queue,
+            currentTrack: response.data.track,
+            history: response.data.history
+          }));
+
+          setSyncStatus('synced');
+          showNotification(
+            `Now playing: ${response.data.track.name}`, 
+            'success'
+          );
+        }
+      }
+    } catch (error) {
+      console.error('Play next error:', error);
+      setSyncStatus('error');
+      showNotification(error.response?.data?.error || 'Failed to play', 'error');
+    }
+
+    setTimeout(() => setSyncStatus('idle'), 3000);
+  };
+
+  // Pause everyone (Host only)
+  const handlePauseSynced = async () => {
+    try {
+      const tokensResponse = await axios.get(
+        `${API_BASE}/session?action=get-all-tokens&code=${sessionCode}`
+      );
+
+      await axios.post(`${API_BASE}/sync?action=pause-sync`, {
+        tokens: tokensResponse.data.tokens
+      });
+
+      showNotification('Paused for everyone', 'success');
+    } catch (error) {
+      console.error('Pause error:', error);
+      showNotification('Failed to pause', 'error');
     }
   };
 
-  const handleVolumeChange = async (newVolume) => {
-    setVolume(newVolume);
-    if (!isHost || !token) return;
-
+  // Resume everyone (Host only)
+  const handleResumeSynced = async () => {
     try {
-      await fetch(`/api/playback?action=volume&token=${token}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ volume_percent: newVolume })
+      const tokensResponse = await axios.get(
+        `${API_BASE}/session?action=get-all-tokens&code=${sessionCode}`
+      );
+
+      await axios.post(`${API_BASE}/sync?action=resume-sync`, {
+        tokens: tokensResponse.data.tokens
+      });
+
+      showNotification('Resumed for everyone', 'success');
+    } catch (error) {
+      console.error('Resume error:', error);
+      showNotification('Failed to resume', 'error');
+    }
+  };
+
+  // Request to play (Guest feature)
+  const handleRequestPlay = async (track) => {
+    try {
+      const response = await axios.post(`${API_BASE}/session?action=request-play`, {
+        code: sessionCode,
+        track,
+        requestedBy: userName,
+        requestedById: userId
+      });
+
+      if (response.data.success) {
+        showNotification('Request sent to host!', 'success');
+      }
+    } catch (error) {
+      console.error('Request error:', error);
+      showNotification(error.response?.data?.error || 'Request failed', 'error');
+    }
+  };
+
+  // Handle play request (Host accepts)
+  const handleAcceptRequest = async (track) => {
+    await handlePlaySynced(track);
+    // Clear the request
+    try {
+      await axios.post(`${API_BASE}/session?action=clear-request`, {
+        code: sessionCode,
+        trackId: track.id
       });
     } catch (error) {
-      console.error('Volume control error:', error);
+      console.error('Error clearing request:', error);
     }
+  };
+
+  // Dismiss request (Host rejects)
+  const handleDismissRequest = async (trackId) => {
+    try {
+      await axios.post(`${API_BASE}/session?action=clear-request`, {
+        code: sessionCode,
+        trackId
+      });
+      showNotification('Request dismissed', 'info');
+    } catch (error) {
+      console.error('Error dismissing request:', error);
+    }
+  };
+
+  // Send reaction
+  const handleSendReaction = async (emoji) => {
+    try {
+      await axios.post(`${API_BASE}/session?action=react`, {
+        code: sessionCode,
+        emoji,
+        userName,
+        userId
+      });
+    } catch (error) {
+      console.error('Reaction error:', error);
+    }
+  };
+
+  // Add & Play Instantly (Host feature)
+  const handleAddAndPlay = async (track) => {
+    await handleAddToQueue(track);
+    await handlePlaySynced(track);
+  };
+
+  // Format duration
+  const formatDuration = (ms) => {
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
   // Copy session code
   const copySessionCode = () => {
-    if (sessionCode) {
-      navigator.clipboard.writeText(sessionCode);
-      showNotification('Code copied!', 'success');
-    }
+    navigator.clipboard.writeText(sessionCode);
+    showNotification('Code copied!', 'success');
   };
 
-  // Generate QR code URL (using QR code API)
-  const getQRCodeUrl = () => {
-    const joinUrl = `${window.location.origin}?join=${sessionCode}`;
-    return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(joinUrl)}&bgcolor=191414&color=1DB954`;
-  };
+  // ==================== RENDER ====================
 
-  // Check for join code in URL
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const joinFromUrl = params.get('join');
-    if (joinFromUrl && !sessionCode) {
-      setJoinCode(joinFromUrl);
-      setView('lobby');
-      window.history.replaceState({}, document.title, '/');
-    }
-  }, [sessionCode]);
-
-  // Render Landing Page
-  if (view === 'landing' && !token) {
+  // Not logged in - Landing page
+  if (!token) {
     return (
       <div className="App">
         <div className="landing">
           <div className="hero">
-            <div className="logo-container">
-              <span className="logo-icon">VS</span>
-              <h1>VibeSync</h1>
-            </div>
-            <p className="tagline">One Premium. Infinite Vibes.</p>
+            <h1>VibeSync</h1>
+            <p className="tagline">Jam Together. Anywhere.</p>
             <p className="description">
-              Turn your Spotify Premium into a shared experience.<br />
-              Create a session, share the code, and let everyone<br />
-              add songs to one collaborative, real-time queue.
+              Distance doesn't matter anymore.<br />
+              Everyone hears the same song at the same time.<br />
+              Create a session, share the code, and vibe together in perfect sync.
             </p>
-            
             <button onClick={handleLogin} className="login-btn">
-              <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-                <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
-              </svg>
               Login with Spotify
             </button>
+            <p className="note">Free and Premium accounts welcome</p>
             
             <div className="features-preview">
-              <div className="feature-item">
-                <span className="feature-icon">*</span>
-                <span>Host needs Premium</span>
+              <div className="feature">
+                <span className="feature-icon">🎵</span>
+                <span>Synchronized Playback</span>
               </div>
-              <div className="feature-item">
-                <span className="feature-icon">+</span>
-                <span>Guests join free</span>
+              <div className="feature">
+                <span className="feature-icon">👥</span>
+                <span>Collaborative Queue</span>
               </div>
-              <div className="feature-item">
-                <span className="feature-icon">~</span>
-                <span>Real-time sync</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="how-it-works">
-            <h2>How It Works</h2>
-            <div className="steps">
-              <div className="step">
-                <div className="step-number">1</div>
-                <h3>Start a Session</h3>
-                <p>Login with your Spotify Premium account and create a new session with a unique code.</p>
-              </div>
-              <div className="step">
-                <div className="step-number">2</div>
-                <h3>Invite Friends</h3>
-                <p>Share the code or QR—friends can join instantly from any device, no app needed.</p>
-              </div>
-              <div className="step">
-                <div className="step-number">3</div>
-                <h3>Vibe Together</h3>
-                <p>Everyone adds songs, votes on favorites, and enjoys the music together in perfect sync.</p>
+              <div className="feature">
+                <span className="feature-icon">🗳️</span>
+                <span>Democratic Voting</span>
               </div>
             </div>
           </div>
-
-          <div className="why-vibesync">
-            <h2>Why VibeSync?</h2>
-            <div className="benefits">
-              <div className="benefit">
-                <span className="benefit-icon">01</span>
-                <h4>No App Required</h4>
-                <p>Works in any browser</p>
-              </div>
-              <div className="benefit">
-                <span className="benefit-icon">02</span>
-                <h4>Real-Time Updates</h4>
-                <p>Instant sync across devices</p>
-              </div>
-              <div className="benefit">
-                <span className="benefit-icon">03</span>
-                <h4>Democratic Queue</h4>
-                <p>Vote on favorite tracks</p>
-              </div>
-              <div className="benefit">
-                <span className="benefit-icon">04</span>
-                <h4>Host Control</h4>
-                <p>Full playback control</p>
-              </div>
-            </div>
-          </div>
-
-          <footer className="landing-footer">
-            <p>© 2025 VibeSync. Built for music lovers.</p>
-            <p className="disclaimer">Not affiliated with Spotify AB</p>
-          </footer>
         </div>
-
-        {notification && (
-          <div className={`notification ${notification.type}`}>
-            {notification.message}
-          </div>
-        )}
       </div>
     );
   }
 
-  // Render Lobby (choose create or join)
-  if (view === 'lobby' || (token && !sessionCode)) {
+  // Logged in but no session
+  if (!sessionCode) {
     return (
       <div className="App">
-        <header className="main-header">
-          <div className="header-left">
-            <span className="logo-small">VS</span>
+        <div className="landing">
+          <div className="hero">
             <h1>VibeSync</h1>
-          </div>
-          <div className="header-right">
-            {user && (
-              <div className="user-info">
-                {user.images?.[0]?.url && (
-                  <img src={user.images[0].url} alt={user.display_name} className="user-avatar" />
-                )}
-                <span>{user.display_name}</span>
+            <p className="welcome">Welcome, {userName}!</p>
+            
+            <div className="session-options">
+              <div className="option-card">
+                <h3>Host a Session</h3>
+                <p>Start a new listening party and invite friends</p>
+                <button onClick={handleCreateSession} className="action-btn primary">
+                  Create Session
+                </button>
               </div>
-            )}
-            <button onClick={handleLogout} className="logout-btn">Logout</button>
-          </div>
-        </header>
 
-        <div className="lobby">
-          <div className="lobby-card create-card">
-            <div className="card-icon">+</div>
-            <h2>Start a Session</h2>
-            <p>Create a new music session and invite your friends to join.</p>
-            <button 
-              onClick={handleCreateSession} 
-              className="primary-btn"
-              disabled={isLoading}
-            >
-              {isLoading ? 'Creating...' : 'Create Session'}
-            </button>
-            <span className="card-note">Requires Spotify Premium</span>
-          </div>
+              <div className="divider">OR</div>
 
-          <div className="divider">
-            <span>OR</span>
-          </div>
-
-          <div className="lobby-card join-card">
-            <div className="card-icon">#</div>
-            <h2>Join a Session</h2>
-            <p>Enter a session code to join an existing music party.</p>
-            <div className="join-form">
-              <input
-                type="text"
-                placeholder="Enter 6-digit code"
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                maxLength={6}
-                className="code-input"
-              />
-              {!token && (
+              <div className="option-card">
+                <h3>Join a Session</h3>
+                <p>Enter the code shared by the host</p>
                 <input
                   type="text"
-                  placeholder="Your name (optional)"
-                  value={guestName}
-                  onChange={(e) => setGuestName(e.target.value)}
-                  className="name-input"
+                  placeholder="Enter code (e.g., ABC123)"
+                  value={inputCode}
+                  onChange={(e) => setInputCode(e.target.value.toUpperCase())}
+                  maxLength={6}
+                  className="code-input"
                 />
-              )}
-              <button 
-                onClick={handleJoinSession} 
-                className="secondary-btn"
-                disabled={isLoading || !joinCode.trim()}
-              >
-                {isLoading ? 'Joining...' : 'Join Session'}
-              </button>
+                <button onClick={handleJoinSession} className="action-btn secondary">
+                  Join Session
+                </button>
+              </div>
             </div>
-            <span className="card-note">No Premium required</span>
+
+            <button onClick={handleLogout} className="logout-link">
+              Logout
+            </button>
           </div>
         </div>
-
-        {notification && (
-          <div className={`notification ${notification.type}`}>
-            {notification.message}
-          </div>
-        )}
       </div>
     );
   }
 
-  // Render Session View
+  // In session view
   return (
-    <div className="App session-view">
-      <header className="session-header">
+    <div className="App">
+      {/* Notification */}
+      {notification && (
+        <div className={`notification ${notification.type}`}>
+          {notification.message}
+        </div>
+      )}
+
+      {/* Floating reactions */}
+      <div className="reactions-display">
+        {reactions.map((r, i) => (
+          <div key={i} className="floating-reaction" style={{
+            left: `${Math.random() * 80 + 10}%`,
+            animationDelay: `${i * 0.1}s`
+          }}>
+            <span className="reaction-emoji">{r.emoji}</span>
+            <span className="reaction-user">{r.userName}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Header */}
+      <header className="app-header">
         <div className="header-left">
-          <button onClick={handleLeaveSession} className="back-btn">
-            ← Leave
-          </button>
-          <span className="logo-small">VS</span>
           <h1>VibeSync</h1>
         </div>
-        <div className="session-info">
-          <div className="session-code" onClick={copySessionCode}>
-            <span className="code-label">Session Code:</span>
-            <span className="code-value">{sessionCode}</span>
-            <span className="copy-icon">Copy</span>
+        <div className="header-center">
+          <div className="session-badge" onClick={copySessionCode}>
+            <span className="badge-label">Session</span>
+            <span className="badge-code">{sessionCode}</span>
+            <span className="copy-icon">📋</span>
           </div>
-          {isHost && (
-            <span className="host-badge">Host</span>
-          )}
+          <div className={`role-badge ${isHost ? 'host' : 'guest'}`}>
+            {isHost ? 'Host' : 'Guest'}
+          </div>
         </div>
         <div className="header-right">
-          <div className="guest-count">
-            <span className="guest-icon">Users:</span>
-            <span>{(session?.guests?.length || 0) + 1}</span>
-          </div>
+          <span className="user-name">{userName}</span>
+          <button onClick={handleLeaveSession} className="leave-btn">
+            Leave
+          </button>
         </div>
       </header>
 
-      <div className="session-content">
-        {/* Info Banner for Guests */}
-        {!isHost && (
-          <div className="info-banner">
-            <strong>Note:</strong> Music plays on {session?.hostName}'s device. You can add songs, vote, and collaborate on the queue!
-          </div>
-        )}
-        
-        {/* Left Panel - Queue & Search */}
-        <div className="left-panel">
-          {/* Search Section */}
-          <div className="search-section">
-            <h2>Add Songs</h2>
-            <form onSubmit={handleSearch}>
-              <input
-                type="text"
-                placeholder="Search for songs, artists..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              <button type="submit" disabled={isLoading}>
-                {isLoading ? '...' : 'Search'}
-              </button>
-            </form>
-          </div>
+      {/* Participants */}
+      <div className="participants-bar">
+        <span className="participants-label">
+          {(sessionData?.guests?.length || 0) + 1} listening:
+        </span>
+        <div className="participants-list">
+          <span className="participant host-name">
+            {sessionData?.hostName || 'Host'} (Host)
+          </span>
+          {sessionData?.guests?.map((guest, i) => (
+            <span key={i} className="participant">
+              {guest.name}
+            </span>
+          ))}
+        </div>
+      </div>
 
-          {/* Search Results */}
-          {searchResults.length > 0 && (
-            <div className="search-results">
-              <h3>Search Results</h3>
-              <div className="results-list">
-                {searchResults.map((track) => (
-                  <div key={track.id} className="track-item search-item">
-                    <img src={track.albumArt} alt={track.album} />
-                    <div className="track-details">
-                      <h4>{track.name}</h4>
-                      <p>{track.artists}</p>
-                    </div>
-                    <span className="track-duration">{formatDuration(track.duration)}</span>
-                    <button 
-                      onClick={() => handleAddToQueue(track)}
-                      className="add-btn"
-                      title="Add to queue"
-                    >
-                      +
+      <main className="main-content">
+        {/* Left Column - Now Playing & Controls */}
+        <div className="left-column">
+          {/* Now Playing */}
+          <section className="now-playing-section">
+            <h2>Now Playing</h2>
+            {sessionData?.currentTrack ? (
+              <div className="now-playing-card">
+                <img 
+                  src={sessionData.currentTrack.albumArt} 
+                  alt={sessionData.currentTrack.album}
+                  className="now-playing-art"
+                />
+                <div className="now-playing-info">
+                  <h3>{sessionData.currentTrack.name}</h3>
+                  <p>{sessionData.currentTrack.artists}</p>
+                  <div className={`sync-indicator ${syncStatus}`}>
+                    {syncStatus === 'synced' && 'Synced with everyone'}
+                    {syncStatus === 'syncing' && 'Syncing...'}
+                    {syncStatus === 'error' && 'Sync failed'}
+                    {syncStatus === 'idle' && 'Playing'}
+                  </div>
+                </div>
+                {isHost && (
+                  <div className="playback-controls">
+                    <button onClick={handlePauseSynced} className="control-btn">
+                      ⏸️
                     </button>
+                    <button onClick={handleResumeSynced} className="control-btn">
+                      ▶️
+                    </button>
+                    <button onClick={handlePlayNext} className="control-btn primary">
+                      ⏭️
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <p>No track playing</p>
+                {isHost && sessionData?.queue?.length > 0 && (
+                  <button onClick={handlePlayNext} className="action-btn primary">
+                    Play from Queue
+                  </button>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* Reactions */}
+          <section className="reactions-section">
+            <h3>Send Reaction</h3>
+            <div className="reaction-buttons">
+              {REACTIONS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => handleSendReaction(emoji)}
+                  className="reaction-btn"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* Play Requests (Host only) */}
+          {isHost && sessionData?.playRequests?.length > 0 && (
+            <section className="requests-section">
+              <h3>Play Requests</h3>
+              <div className="requests-list">
+                {sessionData.playRequests.map((req, i) => (
+                  <div key={i} className="request-item">
+                    <img src={req.track.albumArt} alt={req.track.album} />
+                    <div className="request-info">
+                      <span className="request-track">{req.track.name}</span>
+                      <span className="request-by">from {req.requestedBy}</span>
+                    </div>
+                    <div className="request-actions">
+                      <button 
+                        onClick={() => handleAcceptRequest(req.track)}
+                        className="accept-btn"
+                      >
+                        Play
+                      </button>
+                      <button 
+                        onClick={() => handleDismissRequest(req.track.id)}
+                        className="dismiss-btn"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
           )}
 
-          {/* Queue */}
-          <div className="queue-section">
-            <div className="queue-header">
-              <h2>Queue</h2>
-              <span className="queue-count">{session?.queue?.length || 0} songs</span>
-            </div>
-            
-            {session?.queue?.length > 0 ? (
-              <div className="queue-list">
-                {session.queue.map((track, index) => (
-                  <div key={track.id} className="track-item queue-item">
-                    <span className="queue-position">{index + 1}</span>
+          {/* History Toggle */}
+          <button 
+            onClick={() => setShowHistory(!showHistory)} 
+            className="history-toggle"
+          >
+            {showHistory ? 'Hide' : 'Show'} History
+          </button>
+
+          {/* History */}
+          {showHistory && sessionData?.history?.length > 0 && (
+            <section className="history-section">
+              <h3>Recently Played</h3>
+              <div className="history-list">
+                {sessionData.history.slice().reverse().map((track, i) => (
+                  <div key={i} className="history-item">
                     <img src={track.albumArt} alt={track.album} />
-                    <div className="track-details">
-                      <h4>{track.name}</h4>
-                      <p>{track.artists}</p>
-                      <span className="added-by">Added by {track.addedBy}</span>
+                    <div className="history-info">
+                      <span className="history-track">{track.name}</span>
+                      <span className="history-artist">{track.artists}</span>
+                    </div>
+                    {isHost && (
+                      <button 
+                        onClick={() => handlePlaySynced(track)}
+                        className="replay-btn"
+                      >
+                        Replay
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+
+        {/* Right Column - Search & Queue */}
+        <div className="right-column">
+          {/* Search */}
+          <section className="search-section">
+            <h2>Search Songs</h2>
+            <form onSubmit={handleSearch} className="search-form">
+              <input
+                type="text"
+                placeholder="Search for songs..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="search-input"
+              />
+              <button type="submit" disabled={isSearching} className="search-btn">
+                {isSearching ? 'Searching...' : 'Search'}
+              </button>
+            </form>
+
+            {searchResults.length > 0 && (
+              <div className="search-results">
+                {searchResults.map((track) => (
+                  <div key={track.id} className="track-card">
+                    <img src={track.albumArt} alt={track.album} />
+                    <div className="track-info">
+                      <span className="track-name">{track.name}</span>
+                      <span className="track-artist">{track.artists}</span>
+                      <span className="track-duration">{formatDuration(track.duration)}</span>
                     </div>
                     <div className="track-actions">
+                      <button 
+                        onClick={() => handleAddToQueue(track)}
+                        className="add-btn"
+                        title="Add to Queue"
+                      >
+                        +
+                      </button>
+                      {isHost ? (
+                        <button 
+                          onClick={() => handleAddAndPlay(track)}
+                          className="play-now-btn"
+                          title="Play Now for Everyone"
+                        >
+                          ▶
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={() => handleRequestPlay(track)}
+                          className="request-btn"
+                          title="Request to Play"
+                        >
+                          🙋
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Queue */}
+          <section className="queue-section">
+            <div className="queue-header">
+              <h2>Queue ({sessionData?.queue?.length || 0})</h2>
+              {isHost && sessionData?.queue?.length > 0 && (
+                <button onClick={handlePlayNext} className="play-next-btn">
+                  Play Next
+                </button>
+              )}
+            </div>
+
+            {sessionData?.queue?.length > 0 ? (
+              <div className="queue-list">
+                {sessionData.queue.map((track, index) => (
+                  <div key={track.id} className="queue-item">
+                    <span className="queue-position">{index + 1}</span>
+                    <img src={track.albumArt} alt={track.album} />
+                    <div className="queue-info">
+                      <span className="queue-track">{track.name}</span>
+                      <span className="queue-artist">{track.artists}</span>
+                      <span className="queue-added">Added by {track.addedBy}</span>
+                    </div>
+                    <div className="queue-voting">
                       <button 
                         onClick={() => handleVote(track.id)}
                         className={`vote-btn ${track.votedBy?.includes(userId) ? 'voted' : ''}`}
                       >
-                        <span className="vote-icon">▲</span>
-                        <span className="vote-count">{track.votes || 0}</span>
+                        👍 {track.votes || 0}
                       </button>
-                      {(isHost || track.addedBy === (user?.display_name || guestName)) && (
+                    </div>
+                    <div className="queue-actions">
+                      {isHost && (
+                        <button 
+                          onClick={() => handlePlaySynced(track)}
+                          className="queue-play-btn"
+                          title="Play Now"
+                        >
+                          ▶
+                        </button>
+                      )}
+                      {(isHost || track.addedById === userId) && (
                         <button 
                           onClick={() => handleRemoveTrack(track.id)}
-                          className="remove-btn"
+                          className="queue-remove-btn"
                           title="Remove"
                         >
-                          ×
+                          ✕
                         </button>
                       )}
                     </div>
@@ -801,162 +903,18 @@ function App() {
               </div>
             ) : (
               <div className="empty-queue">
-                <span className="empty-icon">--</span>
                 <p>Queue is empty</p>
-                <p className="empty-hint">Search and add some songs!</p>
+                <p className="empty-hint">Search for songs to add!</p>
               </div>
             )}
-          </div>
+          </section>
         </div>
+      </main>
 
-        {/* Right Panel - Now Playing & Controls */}
-        <div className="right-panel">
-          {/* Share Section */}
-          <div className="share-section">
-            <h2>Invite Friends</h2>
-            <div className="qr-container">
-              <img src={getQRCodeUrl()} alt="QR Code" className="qr-code" />
-            </div>
-            <p className="share-text">Scan to join or share code:</p>
-            <div className="share-code" onClick={copySessionCode}>
-              <span className="big-code">{sessionCode}</span>
-              <button className="copy-btn">Copy</button>
-            </div>
-          </div>
-
-          {/* Now Playing (Host Only) */}
-          {isHost && (
-            <div className="now-playing-section">
-              <h2>Now Playing</h2>
-              
-              {currentTrack?.track ? (
-                <div className="now-playing-card">
-                  <img 
-                    src={currentTrack.track.albumArt} 
-                    alt="Album art" 
-                    className="album-art"
-                  />
-                  <div className="track-info">
-                    <h3>{currentTrack.track.name}</h3>
-                    <p>{currentTrack.track.artists}</p>
-                  </div>
-                  
-                  {/* Progress Bar */}
-                  <div className="progress-container">
-                    <span className="time-current">{formatDuration(progress)}</span>
-                    <div className="progress-bar">
-                      <div 
-                        className="progress-fill" 
-                        style={{ width: `${(progress / currentTrack.track.duration) * 100}%` }}
-                      />
-                    </div>
-                    <span className="time-total">{formatDuration(currentTrack.track.duration)}</span>
-                  </div>
-
-                  {/* Playback Controls */}
-                  <div className="playback-controls">
-                    <button onClick={() => handlePlaybackControl('previous')} className="control-btn">
-                      ⏮
-                    </button>
-                    <button 
-                      onClick={() => handlePlaybackControl(currentTrack.isPlaying ? 'pause' : 'play')} 
-                      className="control-btn play-btn"
-                    >
-                      {currentTrack.isPlaying ? '⏸' : '▶'}
-                    </button>
-                    <button onClick={() => handlePlaybackControl('next')} className="control-btn">
-                      ⏭
-                    </button>
-                  </div>
-
-                  {/* Volume Control */}
-                  <div className="volume-control">
-                    <span className="volume-icon">Vol</span>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={volume}
-                      onChange={(e) => handleVolumeChange(parseInt(e.target.value))}
-                      className="volume-slider"
-                    />
-                    <span className="volume-value">{volume}%</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="no-track">
-                  <span className="no-track-icon">--</span>
-                  <p>No track playing</p>
-                </div>
-              )}
-
-              {/* Play from Queue Button */}
-              {session?.queue?.length > 0 && (
-                <button onClick={handlePlayFromQueue} className="play-queue-btn">
-                  Play Next from Queue
-                </button>
-              )}
-
-              {/* Device Selector */}
-              <div className="device-section">
-                <button onClick={() => { fetchDevices(); setShowDevices(!showDevices); }} className="device-toggle">
-                  Device: {selectedDevice?.name || 'Select Device'}
-                </button>
-                {showDevices && devices.length > 0 && (
-                  <div className="device-list">
-                    {devices.map(device => (
-                      <div 
-                        key={device.id} 
-                        className={`device-item ${device.is_active ? 'active' : ''}`}
-                        onClick={() => setSelectedDevice(device)}
-                      >
-                        <span>{device.type}</span>
-                        <span>{device.name}</span>
-                        {device.is_active && <span className="active-badge">Active</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Guest View - Current Track */}
-          {!isHost && currentTrack?.track && (
-            <div className="guest-now-playing">
-              <h2>Now Playing</h2>
-              <div className="now-playing-card">
-                <img src={currentTrack.track.albumArt} alt="Album art" className="album-art" />
-                <h3>{currentTrack.track.name}</h3>
-                <p>{currentTrack.track.artists}</p>
-                <p className="host-playing">Playing on {session?.hostName}'s Spotify</p>
-              </div>
-            </div>
-          )}
-
-          {/* Guests List */}
-          <div className="guests-section">
-            <h2>In This Session</h2>
-            <div className="guests-list">
-              <div className="guest-item host">
-                <span className="guest-avatar">H</span>
-                <span className="guest-name">{session?.hostName || 'Host'}</span>
-                <span className="role-badge">Host</span>
-              </div>
-              {session?.guests?.map((guest, index) => (
-                <div key={guest.id || index} className="guest-item">
-                  <span className="guest-avatar">G</span>
-                  <span className="guest-name">{guest.name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {notification && (
-        <div className={`notification ${notification.type}`}>
-          {notification.message}
+      {/* Info banner for guests */}
+      {!isHost && (
+        <div className="info-banner">
+          Everyone hears the same music in sync. Make sure Spotify is open on your device!
         </div>
       )}
     </div>

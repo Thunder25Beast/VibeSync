@@ -1,4 +1,5 @@
 // Session Management - Serverless Function with In-Memory Store
+// Supports synchronized playback, reactions, and song history
 // Note: For production, use Redis or a database like MongoDB/Supabase
 
 // In-memory session store (works during function warm state)
@@ -39,11 +40,19 @@ module.exports = async (req, res) => {
   }
 
   const { action } = req.query;
-  const body = req.body || {};
+  let body = req.body || {};
+  
+  // Parse body if string
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch (e) {
+      body = {};
+    }
+  }
 
   // Debug logging
   console.log(`Session API: action=${action}, sessions count=${sessions.size}`);
-  if (body.code) console.log(`Looking for session: ${body.code.toUpperCase()}`);
 
   // Clean old sessions periodically
   cleanOldSessions();
@@ -66,12 +75,18 @@ module.exports = async (req, res) => {
           hostToken,
           queue: [],
           guests: [],
+          history: [],
+          reactions: [],
+          playRequests: [],
+          currentTrack: null,
+          isPlaying: false,
           createdAt: Date.now(),
           lastActivity: Date.now(),
           settings: {
             allowVoting: true,
             allowGuestRemove: false,
-            autoPlay: true
+            autoPlay: true,
+            syncPlayback: true
           }
         };
 
@@ -88,9 +103,9 @@ module.exports = async (req, res) => {
         });
       }
 
-      // Join an existing session (Guest)
+      // Join an existing session (Guest) - NOW STORES TOKEN FOR SYNC
       case 'join': {
-        const { code, guestName, guestId } = body;
+        const { code, guestName, guestId, guestToken } = body;
         
         if (!code) {
           return res.status(400).json({ error: 'Session code required' });
@@ -102,14 +117,25 @@ module.exports = async (req, res) => {
           return res.status(404).json({ error: 'Session not found' });
         }
 
-        // Add guest if not already in
-        const existingGuest = session.guests.find(g => g.id === guestId);
-        if (!existingGuest) {
-          session.guests.push({
-            id: guestId || `guest_${Date.now()}`,
-            name: guestName || `Guest ${session.guests.length + 1}`,
-            joinedAt: Date.now()
-          });
+        // Add or update guest
+        const guestIdent = guestId || `guest_${Date.now()}`;
+        const existingGuestIndex = session.guests.findIndex(g => g.id === guestIdent);
+        
+        const guestData = {
+          id: guestIdent,
+          name: guestName || `Guest ${session.guests.length + 1}`,
+          token: guestToken, // Store token for sync!
+          joinedAt: Date.now()
+        };
+
+        if (existingGuestIndex >= 0) {
+          // Update existing guest (refresh token)
+          session.guests[existingGuestIndex] = { 
+            ...session.guests[existingGuestIndex], 
+            ...guestData 
+          };
+        } else {
+          session.guests.push(guestData);
         }
 
         session.lastActivity = Date.now();
@@ -120,7 +146,10 @@ module.exports = async (req, res) => {
             code: session.code,
             hostName: session.hostName,
             queue: session.queue,
-            guests: session.guests,
+            guests: session.guests.map(g => ({ id: g.id, name: g.name })),
+            history: session.history.slice(-10),
+            currentTrack: session.currentTrack,
+            isPlaying: session.isPlaying,
             settings: session.settings
           }
         });
@@ -140,23 +169,58 @@ module.exports = async (req, res) => {
           return res.status(404).json({ error: 'Session not found' });
         }
 
+        // Clear old reactions (older than 5 seconds)
+        const now = Date.now();
+        session.reactions = session.reactions.filter(r => now - r.timestamp < 5000);
+
         return res.json({
           success: true,
           session: {
             code: session.code,
             hostName: session.hostName,
-            hostToken: session.hostToken, // Only return to validate host
             queue: session.queue,
-            guests: session.guests,
+            guests: session.guests.map(g => ({ id: g.id, name: g.name })),
+            history: session.history.slice(-10),
+            currentTrack: session.currentTrack,
+            isPlaying: session.isPlaying,
+            reactions: session.reactions,
+            playRequests: session.playRequests || [],
             settings: session.settings,
             lastActivity: session.lastActivity
           }
         });
       }
 
+      // Get all tokens for synchronized playback
+      case 'get-all-tokens': {
+        const { code } = req.query;
+        
+        if (!code) {
+          return res.status(400).json({ error: 'Session code required' });
+        }
+
+        const session = sessions.get(code.toUpperCase());
+        
+        if (!session) {
+          return res.status(404).json({ error: 'Session not found' });
+        }
+
+        // Collect all tokens (host + guests with tokens)
+        const tokens = [session.hostToken];
+        session.guests.forEach(g => {
+          if (g.token) tokens.push(g.token);
+        });
+
+        return res.json({
+          success: true,
+          tokens,
+          participantCount: tokens.length
+        });
+      }
+
       // Add track to queue
       case 'addTrack': {
-        const { code, track, addedBy } = body;
+        const { code, track, addedBy, addedById } = body;
         
         if (!code || !track) {
           return res.status(400).json({ error: 'Session code and track required' });
@@ -177,9 +241,10 @@ module.exports = async (req, res) => {
         session.queue.push({
           ...track,
           addedBy: addedBy || 'Guest',
+          addedById: addedById,
           addedAt: Date.now(),
           votes: 1,
-          votedBy: [addedBy || 'Guest']
+          votedBy: [addedById || addedBy || 'Guest']
         });
 
         session.lastActivity = Date.now();
@@ -258,7 +323,7 @@ module.exports = async (req, res) => {
 
         // Only host or track owner can remove (unless guest remove is allowed)
         const track = session.queue[trackIndex];
-        if (!isHost && track.addedBy !== requesterId && !session.settings.allowGuestRemove) {
+        if (!isHost && track.addedById !== requesterId && !session.settings.allowGuestRemove) {
           return res.status(403).json({ error: 'Not authorized to remove this track' });
         }
 
@@ -271,12 +336,12 @@ module.exports = async (req, res) => {
         });
       }
 
-      // Reorder queue (host only)
-      case 'reorder': {
-        const { code, fromIndex, toIndex } = body;
+      // Update current track (for sync status)
+      case 'update-track': {
+        const { code, track } = body;
         
-        if (!code || fromIndex === undefined || toIndex === undefined) {
-          return res.status(400).json({ error: 'Session code and indices required' });
+        if (!code) {
+          return res.status(400).json({ error: 'Session code required' });
         }
 
         const session = sessions.get(code.toUpperCase());
@@ -285,17 +350,30 @@ module.exports = async (req, res) => {
           return res.status(404).json({ error: 'Session not found' });
         }
 
-        const [movedTrack] = session.queue.splice(fromIndex, 1);
-        session.queue.splice(toIndex, 0, movedTrack);
+        // Add old track to history if exists
+        if (session.currentTrack && session.currentTrack.id !== track?.id) {
+          session.history.push({
+            ...session.currentTrack,
+            playedAt: Date.now()
+          });
+          // Keep only last 50 tracks in history
+          if (session.history.length > 50) {
+            session.history = session.history.slice(-50);
+          }
+        }
+
+        session.currentTrack = track;
+        session.isPlaying = !!track;
         session.lastActivity = Date.now();
 
         return res.json({
           success: true,
-          queue: session.queue
+          currentTrack: session.currentTrack,
+          history: session.history.slice(-10)
         });
       }
 
-      // Play next track from queue (host only)
+      // Play next track from queue (host only) - returns tokens for sync
       case 'playNext': {
         const { code } = body;
         
@@ -313,15 +391,129 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'Queue is empty' });
         }
 
+        // Add current track to history
+        if (session.currentTrack) {
+          session.history.push({
+            ...session.currentTrack,
+            playedAt: Date.now()
+          });
+        }
+
         // Remove first track and return it
         const nextTrack = session.queue.shift();
+        session.currentTrack = nextTrack;
+        session.isPlaying = true;
         session.lastActivity = Date.now();
+
+        // Collect all tokens for sync
+        const tokens = [session.hostToken];
+        session.guests.forEach(g => {
+          if (g.token) tokens.push(g.token);
+        });
 
         return res.json({
           success: true,
           track: nextTrack,
           queue: session.queue,
-          hostToken: session.hostToken
+          tokens,
+          history: session.history.slice(-10)
+        });
+      }
+
+      // Send reaction (emoji)
+      case 'react': {
+        const { code, emoji, userName, userId } = body;
+        
+        if (!code || !emoji) {
+          return res.status(400).json({ error: 'Session code and emoji required' });
+        }
+
+        const session = sessions.get(code.toUpperCase());
+        
+        if (!session) {
+          return res.status(404).json({ error: 'Session not found' });
+        }
+
+        session.reactions.push({
+          emoji,
+          userName: userName || 'Anonymous',
+          userId,
+          timestamp: Date.now()
+        });
+
+        // Keep only last 20 reactions
+        if (session.reactions.length > 20) {
+          session.reactions = session.reactions.slice(-20);
+        }
+
+        session.lastActivity = Date.now();
+
+        return res.json({
+          success: true,
+          reactions: session.reactions
+        });
+      }
+
+      // Request to play (guest requests host to play a song)
+      case 'request-play': {
+        const { code, track, requestedBy, requestedById } = body;
+        
+        if (!code || !track) {
+          return res.status(400).json({ error: 'Session code and track required' });
+        }
+
+        const session = sessions.get(code.toUpperCase());
+        
+        if (!session) {
+          return res.status(404).json({ error: 'Session not found' });
+        }
+
+        // Add to pending requests
+        if (!session.playRequests) session.playRequests = [];
+        
+        // Check if already requested
+        const existing = session.playRequests.find(r => r.track.id === track.id);
+        if (existing) {
+          return res.status(400).json({ error: 'Song already requested' });
+        }
+
+        session.playRequests.push({
+          track,
+          requestedBy: requestedBy || 'Guest',
+          requestedById,
+          requestedAt: Date.now()
+        });
+
+        session.lastActivity = Date.now();
+
+        return res.json({
+          success: true,
+          message: 'Request sent to host',
+          requests: session.playRequests
+        });
+      }
+
+      // Clear play request
+      case 'clear-request': {
+        const { code, trackId } = body;
+        
+        if (!code) {
+          return res.status(400).json({ error: 'Session code required' });
+        }
+
+        const session = sessions.get(code.toUpperCase());
+        
+        if (!session) {
+          return res.status(404).json({ error: 'Session not found' });
+        }
+
+        if (session.playRequests) {
+          session.playRequests = session.playRequests.filter(r => r.track.id !== trackId);
+        }
+
+        return res.json({
+          success: true,
+          requests: session.playRequests || []
         });
       }
 
