@@ -99,11 +99,34 @@ function App() {
 
     const fetchProfile = async () => {
       try {
+        console.log('Fetching profile with token:', token.substring(0, 20) + '...');
+        
         const response = await fetch('https://api.spotify.com/v1/me', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         
+        // Log the actual error from Spotify
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`Spotify API error ${response.status}:`, errorText);
+          
+          try {
+            const errorJson = JSON.parse(errorText);
+            console.error('Spotify error details:', errorJson);
+            
+            // Check for specific Spotify errors
+            if (errorJson.error?.message) {
+              console.error('Spotify message:', errorJson.error.message);
+            }
+          } catch (e) {
+            // Not JSON
+          }
+        }
+        
         if (response.status === 401 || response.status === 403) {
+          // For 403, check if it's a scope or user restriction issue
+          // 403 on fresh token usually means app is in dev mode and user not allowlisted
+          
           // Check if we've already tried refreshing too many times
           if (refreshAttempts.current >= 2) {
             console.log('Max refresh attempts reached, logging out...');
@@ -115,7 +138,7 @@ function App() {
             setToken(null);
             setSessionCode('');
             setProfileLoaded(false);
-            showNotification('Session expired. Please log in again.', 'error');
+            showNotification('Unable to authenticate. Make sure you are authorized to use this app.', 'error');
             return;
           }
           
@@ -151,14 +174,17 @@ function App() {
                   console.log('Token refreshed and validated successfully');
                   return;
                 } else {
-                  console.log('Refreshed token is also invalid');
+                  const valError = await validateResponse.text();
+                  console.log('Refreshed token validation failed:', validateResponse.status, valError);
                 }
               } else {
-                console.log('Refresh returned error:', refreshData.error);
+                console.log('Refresh returned error:', refreshData.error || refreshData);
               }
             } catch (refreshError) {
               console.error('Token refresh failed:', refreshError);
             }
+          } else {
+            console.log('No refresh token available');
           }
           
           // If refresh failed or no refresh token, clear everything
@@ -171,7 +197,7 @@ function App() {
           setToken(null);
           setSessionCode('');
           setProfileLoaded(false);
-          showNotification('Session expired. Please log in again.', 'error');
+          showNotification('Authentication failed. Please try logging in again.', 'error');
           return;
         }
         
@@ -186,6 +212,7 @@ function App() {
           setUserId(data.id);
           setProfileLoaded(true);
           refreshAttempts.current = 0;
+          console.log('Profile loaded:', data.display_name || data.id);
         }
       } catch (error) {
         console.error('Error fetching profile:', error);

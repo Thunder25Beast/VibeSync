@@ -93,7 +93,10 @@ module.exports = async (req, res) => {
 
       if (data.access_token) {
         const frontendUrl = getFrontendUrl();
-        return res.redirect(`${frontendUrl}?token=${data.access_token}&refresh=${data.refresh_token}`);
+        // Properly encode tokens to handle special characters
+        const encodedToken = encodeURIComponent(data.access_token);
+        const encodedRefresh = encodeURIComponent(data.refresh_token || '');
+        return res.redirect(`${frontendUrl}?token=${encodedToken}&refresh=${encodedRefresh}`);
       } else {
         console.error('Token error:', data);
         return res.status(400).json({ error: 'Failed to get token', details: data });
