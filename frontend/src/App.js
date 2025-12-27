@@ -402,14 +402,32 @@ function App() {
       });
 
       const data = await response.json();
+      console.log('PlayNext response:', data);
+      
       if (data.success && data.track) {
-        // Play the track
-        await fetch(`/api/playback?action=play&token=${token}`, {
+        // Play the track using the Spotify URI
+        const trackUri = data.track.uri;
+        if (!trackUri) {
+          showNotification('Track URI not found', 'error');
+          return;
+        }
+        
+        const playResponse = await fetch(`/api/playback?action=play&token=${token}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ uris: [data.track.uri] })
+          body: JSON.stringify({ uris: [trackUri] })
         });
-        showNotification(`Now playing: ${data.track.name}`, 'success');
+        
+        const playData = await playResponse.json();
+        console.log('Play response:', playData);
+        
+        if (playResponse.ok) {
+          showNotification(`Now playing: ${data.track.name}`, 'success');
+        } else {
+          showNotification(playData.error?.message || 'Failed to play', 'error');
+        }
+      } else {
+        showNotification(data.error || 'Failed to get next track', 'error');
       }
     } catch (error) {
       console.error('Error playing from queue:', error);

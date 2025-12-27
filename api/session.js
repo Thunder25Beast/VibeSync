@@ -1,9 +1,10 @@
 // Session Management - Serverless Function with In-Memory Store
 // Note: For production, use Redis or a database like MongoDB/Supabase
 
-// In-memory session store (works for single instance)
-// For Vercel, we'll use a simple approach with KV store simulation
-const sessions = new Map();
+// In-memory session store (works during function warm state)
+// WARNING: Sessions may be lost when function cold-starts!
+const sessions = global.vibesyncSessions || new Map();
+global.vibesyncSessions = sessions;
 
 // Generate unique session code
 function generateSessionCode() {
@@ -39,6 +40,10 @@ module.exports = async (req, res) => {
 
   const { action } = req.query;
   const body = req.body || {};
+
+  // Debug logging
+  console.log(`Session API: action=${action}, sessions count=${sessions.size}`);
+  if (body.code) console.log(`Looking for session: ${body.code.toUpperCase()}`);
 
   // Clean old sessions periodically
   cleanOldSessions();
