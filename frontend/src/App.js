@@ -11,9 +11,15 @@ function App() {
   const [userId, setUserId] = useState(null);
   const [userName, setUserName] = useState('');
   const [profileLoaded, setProfileLoaded] = useState(false);
+  const [hasPremium, setHasPremium] = useState(true); // Assume premium until we know otherwise
   
   // Ref to track refresh attempts (prevents infinite loops)
   const refreshAttempts = useRef(0);
+  
+  // Audio player ref for non-Premium users
+  const audioRef = useRef(null);
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const [previewVolume, setPreviewVolume] = useState(0.7);
   
   // Session state
   const [sessionCode, setSessionCode] = useState('');
@@ -212,7 +218,15 @@ function App() {
           setUserId(data.id);
           setProfileLoaded(true);
           refreshAttempts.current = 0;
-          console.log('Profile loaded:', data.display_name || data.id);
+          
+          // Check if user has Premium
+          const isPremium = data.product === 'premium';
+          setHasPremium(isPremium);
+          console.log('Profile loaded:', data.display_name || data.id, '| Premium:', isPremium);
+          
+          if (!isPremium) {
+            showNotification('Free account detected - you\'ll hear song previews in browser!', 'info');
+          }
         }
       } catch (error) {
         console.error('Error fetching profile:', error);
@@ -227,16 +241,33 @@ function App() {
     if (!sessionCode || !token) return;
 
     let errorCount = 0; // Local error count to avoid stale state
+    let lastTrackId = null; // Track when song changes
     
     const pollSession = async () => {
       try {
         const response = await axios.get(`${API_BASE}/session?action=get&code=${sessionCode}`);
         
         if (response.data.success) {
-          setSessionData(response.data.session);
-          setReactions(response.data.session.reactions || []);
+          const newSession = response.data.session;
+          setSessionData(newSession);
+          setReactions(newSession.reactions || []);
           errorCount = 0; // Reset on success
           setSessionErrorCount(0);
+          
+          // Auto-play preview for non-Premium users when track changes
+          if (!hasPremium && !isHost && newSession.currentTrack) {
+            const currentTrackId = newSession.currentTrack.id;
+            if (currentTrackId !== lastTrackId) {
+              lastTrackId = currentTrackId;
+              // Play the preview
+              if (newSession.currentTrack.previewUrl && audioRef.current) {
+                audioRef.current.src = newSession.currentTrack.previewUrl;
+                audioRef.current.volume = previewVolume;
+                audioRef.current.play().catch(e => console.log('Auto-play blocked:', e));
+                setIsPreviewPlaying(true);
+              }
+            }
+          }
         }
       } catch (error) {
         console.log('Poll error:', error.response?.status);
@@ -256,7 +287,7 @@ function App() {
     pollSession();
     const interval = setInterval(pollSession, 2000);
     return () => clearInterval(interval);
-  }, [sessionCode, token, handleLeaveSession, showNotification]);
+  }, [sessionCode, token, handleLeaveSession, showNotification, hasPremium, isHost, previewVolume]);
 
   // Keep token updated in session (so sync works after token refresh)
   useEffect(() => {
@@ -420,7 +451,8 @@ function App() {
           album: track.album,
           albumArt: track.albumArt,
           duration: track.duration,
-          uri: track.uri
+          uri: track.uri,
+          previewUrl: track.previewUrl // Include preview URL for non-Premium users
         },
         addedBy: userName,
         addedById: userId
@@ -891,6 +923,15 @@ function App() {
       </div>
 
       <main className="main-content">
+        {/* Hidden audio element for preview playback */}
+        <audio 
+          ref={audioRef} 
+          loop 
+          onPlay={() => setIsPreviewPlaying(true)}
+          onPause={() => setIsPreviewPlaying(false)}
+          onEnded={() => setIsPreviewPlaying(false)}
+        />
+        
         {/* Left Column - Now Playing & Controls */}
         <div className="left-column">
           {/* Now Playing */}
@@ -912,6 +953,53 @@ function App() {
                     {syncStatus === 'error' && 'Sync failed'}
                     {syncStatus === 'idle' && 'Playing'}
                   </div>
+                  
+                  {/* Preview player for non-Premium users */}
+                  {!hasPremium && !isHost && (
+                    <div className="preview-player">
+                      <div className="preview-badge">Preview Mode (Free)</div>
+                      <div className="preview-controls">
+                        <button 
+                          onClick={() => {
+                            if (audioRef.current) {
+                              if (isPreviewPlaying) {
+                                audioRef.current.pause();
+                              } else {
+                                if (sessionData.currentTrack.previewUrl) {
+                                  audioRef.current.src = sessionData.currentTrack.previewUrl;
+                                  audioRef.current.play();
+                                } else {
+                                  showNotification('No preview available for this track', 'error');
+                                }
+                              }
+                            }
+                          }}
+                          className="preview-play-btn"
+                        >
+                          {isPreviewPlaying ? '⏸️ Pause' : '▶️ Play Preview'}
+                        </button>
+                        <div className="volume-control">
+                          <span>🔊</span>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.1"
+                            value={previewVolume}
+                            onChange={(e) => {
+                              const vol = parseFloat(e.target.value);
+                              setPreviewVolume(vol);
+                              if (audioRef.current) audioRef.current.volume = vol;
+                            }}
+                            className="volume-slider"
+                          />
+                        </div>
+                      </div>
+                      {!sessionData.currentTrack.previewUrl && (
+                        <p className="no-preview-msg">No preview available - listen on Spotify</p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 {isHost && (
                   <div className="playback-controls">
